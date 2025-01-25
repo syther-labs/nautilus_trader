@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,7 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.order_type cimport OrderType
+from nautilus_trader.core.rust.model cimport OrderType
 from nautilus_trader.model.events.order cimport OrderInitialized
 from nautilus_trader.model.orders.base cimport Order
 from nautilus_trader.model.orders.limit cimport LimitOrder
@@ -41,26 +41,26 @@ cdef class OrderUnpacker:
 
     @staticmethod
     cdef Order from_init_c(OrderInitialized init):
-        if init.type == OrderType.MARKET:
-            return MarketOrder.create(init=init)
-        elif init.type == OrderType.LIMIT:
-            return LimitOrder.create(init=init)
-        elif init.type == OrderType.STOP_MARKET:
-            return StopMarketOrder.create(init=init)
-        elif init.type == OrderType.STOP_LIMIT:
-            return StopLimitOrder.create(init=init)
-        elif init.type == OrderType.MARKET_TO_LIMIT:
-            return MarketToLimitOrder.create(init=init)
-        elif init.type == OrderType.MARKET_IF_TOUCHED:
-            return MarketIfTouchedOrder.create(init=init)
-        elif init.type == OrderType.LIMIT_IF_TOUCHED:
-            return LimitIfTouchedOrder.create(init=init)
-        elif init.type == OrderType.TRAILING_STOP_MARKET:
-            return TrailingStopMarketOrder.create(init=init)
-        elif init.type == OrderType.TRAILING_STOP_LIMIT:
-            return TrailingStopLimitOrder.create(init=init)
-        else:  # pragma: no cover (design-time error)
-            raise RuntimeError("invalid order type")
+        if init.order_type == OrderType.MARKET:
+            return MarketOrder.create_c(init=init)
+        elif init.order_type == OrderType.LIMIT:
+            return LimitOrder.create_c(init=init)
+        elif init.order_type == OrderType.STOP_MARKET:
+            return StopMarketOrder.create_c(init=init)
+        elif init.order_type == OrderType.STOP_LIMIT:
+            return StopLimitOrder.create_c(init=init)
+        elif init.order_type == OrderType.MARKET_TO_LIMIT:
+            return MarketToLimitOrder.create_c(init=init)
+        elif init.order_type == OrderType.MARKET_IF_TOUCHED:
+            return MarketIfTouchedOrder.create_c(init=init)
+        elif init.order_type == OrderType.LIMIT_IF_TOUCHED:
+            return LimitIfTouchedOrder.create_c(init=init)
+        elif init.order_type == OrderType.TRAILING_STOP_MARKET:
+            return TrailingStopMarketOrder.create_c(init=init)
+        elif init.order_type == OrderType.TRAILING_STOP_LIMIT:
+            return TrailingStopLimitOrder.create_c(init=init)
+        else:
+            raise RuntimeError("invalid `OrderType`")  # pragma: no cover (design-time error)
 
     @staticmethod
     def unpack(dict values) -> Order:
@@ -77,3 +77,20 @@ cdef class OrderUnpacker:
 
         """
         return OrderUnpacker.unpack_c(values)
+
+    @staticmethod
+    def from_init(OrderInitialized init) -> Order:
+        """
+        Return an order initialized from the given event.
+
+        Parameters
+        ----------
+        init : OrderInitialized
+            The event to initialize with.
+
+        Returns
+        -------
+        Order
+
+        """
+        return OrderUnpacker.from_init_c(init)

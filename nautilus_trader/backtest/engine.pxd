@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,72 +14,64 @@
 # -------------------------------------------------------------------------------------------------
 
 from cpython.datetime cimport datetime
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
-from nautilus_trader.cache.base cimport CacheFacade
-from nautilus_trader.cache.cache cimport Cache
-from nautilus_trader.common.clock cimport Clock
-from nautilus_trader.common.logging cimport Logger
-from nautilus_trader.common.logging cimport LoggerAdapter
-from nautilus_trader.common.uuid cimport UUIDFactory
+from nautilus_trader.backtest.exchange cimport SimulatedExchange
+from nautilus_trader.common.component cimport Clock
+from nautilus_trader.common.component cimport Logger
 from nautilus_trader.core.data cimport Data
+from nautilus_trader.core.rust.backtest cimport TimeEventAccumulatorAPI
+from nautilus_trader.core.rust.core cimport CVec
 from nautilus_trader.core.uuid cimport UUID4
 from nautilus_trader.data.engine cimport DataEngine
-from nautilus_trader.execution.engine cimport ExecutionEngine
-from nautilus_trader.model.identifiers cimport TraderId
-from nautilus_trader.msgbus.bus cimport MessageBus
-from nautilus_trader.portfolio.base cimport PortfolioFacade
-from nautilus_trader.portfolio.portfolio cimport Portfolio
-from nautilus_trader.risk.engine cimport RiskEngine
-from nautilus_trader.trading.trader cimport Trader
 
 
 cdef class BacktestEngine:
     cdef object _config
     cdef Clock _clock
-    cdef Clock _test_clock
-    cdef UUIDFactory _uuid_factory
-    cdef MessageBus _msgbus
-    cdef Cache _cache
-    cdef Portfolio _portfolio
+    cdef Logger _log
+    cdef TimeEventAccumulatorAPI _accumulator
+
+    cdef object _kernel
+    cdef UUID4 _instance_id
     cdef DataEngine _data_engine
-    cdef ExecutionEngine _exec_engine
-    cdef RiskEngine _risk_engine
-    cdef readonly LoggerAdapter _log
-    cdef Logger _logger
-    cdef Logger _test_logger
+    cdef str _run_config_id
+    cdef UUID4 _run_id
+    cdef datetime _run_started
+    cdef datetime _run_finished
+    cdef datetime _backtest_start
+    cdef datetime _backtest_end
 
-    cdef dict _exchanges
-    cdef list _data
-    cdef int64_t _data_len
-    cdef int64_t _index
-
-    cdef readonly Trader trader
-    """The trader for the backtest.\n\n:returns: `Trader`"""
-    cdef readonly TraderId trader_id
-    """The trader ID associated with the engine.\n\n:returns: `TraderId`"""
-    cdef readonly str machine_id
-    """The backtest engine machine ID.\n\n:returns: `str`"""
-    cdef readonly UUID4 instance_id
-    """The backtest engine instance ID.\n\n:returns: `UUID4`"""
-    cdef readonly CacheFacade cache
-    """The backtest engine cache.\n\n:returns: `CacheFacade`"""
-    cdef readonly PortfolioFacade portfolio
-    """The backtest engine portfolio.\n\n:returns: `PortfolioFacade`"""
-    cdef readonly str run_config_id
-    """The last backtest engine run config ID.\n\n:returns: `str` or ``None``"""
-    cdef readonly UUID4 run_id
-    """The last backtest engine run ID (if run).\n\n:returns: `UUID4` or ``None``"""
-    cdef readonly int iteration
-    """The backtest engine iteration count.\n\n:returns: `int`"""
-    cdef readonly datetime run_started
-    """When the last backtest run started (if run).\n\n:returns: `datetime` or ``None``"""
-    cdef readonly datetime run_finished
-    """When the last backtest run finished (if run).\n\n:returns: `datetime` or ``None``"""
-    cdef readonly datetime backtest_start
-    """The last backtest run time range start (if run).\n\n:returns: `datetime` or ``None``"""
-    cdef readonly datetime backtest_end
-    """The last backtest run time range end (if run).\n\n:returns: `datetime` or ``None``"""
+    cdef dict[Venue, SimulatedExchange] _venues
+    cdef set[InstrumentId] _has_data
+    cdef set[InstrumentId] _has_book_data
+    cdef list[Data] _data
+    cdef uint64_t _data_len
+    cdef uint64_t _index
+    cdef uint64_t _iteration
 
     cdef Data _next(self)
-    cdef void _advance_time(self, int64_t now_ns) except *
+    cdef CVec _advance_time(self, uint64_t ts_now)
+    cdef void _process_raw_time_event_handlers(
+        self,
+        CVec raw_handlers,
+        uint64_t ts_now,
+        bint only_now,
+        bint asof_now=*,
+    )
+
+
+cdef inline bint should_skip_time_event(
+    uint64_t ts_event_init,
+    uint64_t ts_now,
+    bint only_now,
+    bint asof_now,
+):
+    if only_now and ts_event_init < ts_now:
+        return True
+    if (not only_now) and (ts_event_init == ts_now):
+        return True
+    if asof_now and ts_event_init > ts_now:
+        return True
+
+    return False

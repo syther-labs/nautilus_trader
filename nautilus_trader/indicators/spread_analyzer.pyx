@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -20,32 +20,29 @@ import numpy as np
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.core.stats cimport fast_mean_iterated
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.tick cimport QuoteTick
+from nautilus_trader.model.data cimport QuoteTick
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class SpreadAnalyzer(Indicator):
     """
     Provides various spread analysis metrics.
+
+    Parameters
+    ----------
+    instrument_id : InstrumentId
+        The instrument ID for the tick updates.
+    capacity : int
+        The max length for the internal `QuoteTick` deque (determines averages).
+
+    Raises
+    ------
+    ValueError
+        If `capacity` is not positive (> 0).
     """
 
-    def __init__(self, InstrumentId instrument_id not None, int capacity):
-        """
-        Initialize a new instance of the ``SpreadAnalyzer`` class.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The instrument ID for the tick updates.
-        capacity : int
-            The max length for the internal `QuoteTick` deque (determines averages).
-
-        Raises
-        ------
-        ValueError
-            If `capacity` is not positive (> 0).
-
-        """
+    def __init__(self, InstrumentId instrument_id not None, int capacity) -> None:
         Condition.positive_int(capacity, "capacity")
         super().__init__(params=[instrument_id, capacity])
 
@@ -56,7 +53,7 @@ cdef class SpreadAnalyzer(Indicator):
         self.current = 0
         self.average = 0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the analyzer with the given quote tick.
 
@@ -80,7 +77,9 @@ cdef class SpreadAnalyzer(Indicator):
             if len(self._spreads) == self.capacity:
                 self._set_initialized(True)
 
-        cdef double spread = tick.ask.as_double() - tick.bid.as_double()
+        cdef double bid = Price.raw_to_f64_c(tick._mem.bid_price.raw)
+        cdef double ask = Price.raw_to_f64_c(tick._mem.ask_price.raw)
+        cdef double spread = ask - bid
 
         self.current = spread
         self._spreads.append(spread)
@@ -94,7 +93,7 @@ cdef class SpreadAnalyzer(Indicator):
             drop_left=False,
         )
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._spreads.clear()
         self.current = 0
         self.average = 0

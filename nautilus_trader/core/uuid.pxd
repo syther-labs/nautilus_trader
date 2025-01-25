@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,6 +13,16 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from nautilus_trader.core.rust.core cimport UUID4_t
+
+
 cdef class UUID4:
-    cdef readonly str value
-    """The UUID string value.\n\n:returns: `str`"""
+    cdef UUID4_t _mem
+
+    cdef str to_str(self)
+
+    @staticmethod
+    cdef UUID4 from_mem_c(UUID4_t raw)
+
+    @staticmethod
+    cdef UUID4 from_str_c(str value)

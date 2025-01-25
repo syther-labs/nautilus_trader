@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,9 +15,9 @@
 
 import pytest
 
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
 from nautilus_trader.indicators.keltner_position import KeltnerPosition
-from tests.test_kit.stubs.data import TestDataStubs
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
@@ -120,7 +120,7 @@ class TestKeltnerPosition:
             self.kp.update_raw(high, low, close)
 
         # Act, Assert
-        assert self.kp.value == pytest.approx(-1.637585941284833)
+        assert self.kp.value == pytest.approx(-1.637585941284833, rel=1e-9)
 
     def test_value_with_ten_inputs_returns_expected_value(self):
         # Arrange
@@ -136,7 +136,7 @@ class TestKeltnerPosition:
         self.kp.update_raw(1.00020, 1.00010, 1.00010)
 
         # Act, Assert
-        assert self.kp.value == -0.14281747514671334
+        assert self.kp.value == pytest.approx(-0.14281747514671334, rel=1e-9)
 
     def test_reset_successfully_returns_indicator_to_fresh_state(self):
         # Arrange

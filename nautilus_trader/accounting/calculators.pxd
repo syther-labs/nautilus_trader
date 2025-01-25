@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,13 +15,13 @@
 
 from cpython.datetime cimport date
 
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.objects cimport Currency
 
 
 cdef class ExchangeRateCalculator:
-    cpdef object get_rate(
+    cpdef double get_rate(
         self,
         Currency from_currency,
         Currency to_currency,

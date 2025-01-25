@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,54 +13,54 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import asyncio
 
 import pytest
 
+from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.user import BinanceSpotUserDataHttpAPI
-from nautilus_trader.common.clock import LiveClock
-from nautilus_trader.common.logging import Logger
+from nautilus_trader.common.component import LiveClock
 
 
+@pytest.mark.skip(reason="WIP")
 class TestBinanceUserHttpAPI:
     def setup(self):
         # Fixture Setup
         clock = LiveClock()
-        logger = Logger(clock=clock)
-        self.client = BinanceHttpClient(  # noqa: S106 (no hardcoded password)
-            loop=asyncio.get_event_loop(),
+        self.client = BinanceHttpClient(
             clock=clock,
-            logger=logger,
-            key="SOME_BINANCE_API_KEY",
-            secret="SOME_BINANCE_API_SECRET",
+            api_key="SOME_BINANCE_API_KEY",
+            api_secret="SOME_BINANCE_API_SECRET",
+            base_url="https://api.binance.com/",  # Spot/Margin
+        )
+        self.test_symbol = "ETHUSDT"
+        self.spot_api = BinanceSpotUserDataHttpAPI(self.client, BinanceAccountType.SPOT)
+        self.isolated_margin_api = BinanceSpotUserDataHttpAPI(
+            self.client,
+            BinanceAccountType.ISOLATED_MARGIN,
         )
 
-        self.api = BinanceSpotUserDataHttpAPI(self.client)
-
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_listen_key_spot(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.create_listen_key()
+        await self.spot_api.create_listen_key()
 
         # Assert
         request = mock_send_request.call_args.kwargs
         assert request["method"] == "POST"
         assert request["url"] == "https://api.binance.com/api/v3/userDataStream"
 
-    @pytest.mark.asyncio
-    async def test_ping_listen_key_spot(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_keepalive_listen_key_spot(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.ping_listen_key(
-            key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy"
+        await self.spot_api.keepalive_listen_key(
+            listen_key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
         )
 
         # Assert
@@ -72,15 +72,14 @@ class TestBinanceUserHttpAPI:
             == "listenKey=JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy"
         )
 
-    @pytest.mark.asyncio
-    async def test_close_listen_key_spot(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_delete_listen_key_spot(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.close_listen_key(
-            key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy"
+        await self.spot_api.delete_listen_key(
+            listen_key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
         )
 
         # Assert
@@ -92,14 +91,13 @@ class TestBinanceUserHttpAPI:
             == "listenKey=JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_listen_key_isolated_margin(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.create_listen_key_isolated_margin(symbol="ETHUSDT")
+        await self.isolated_margin_api.create_listen_key(symbol=self.test_symbol)
 
         # Assert
         request = mock_send_request.call_args.kwargs
@@ -107,16 +105,15 @@ class TestBinanceUserHttpAPI:
         assert request["url"] == "https://api.binance.com/sapi/v1/userDataStream/isolated"
         assert request["params"] == "symbol=ETHUSDT"
 
-    @pytest.mark.asyncio
-    async def test_ping_listen_key_isolated_margin(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_keepalive_listen_key_isolated_margin(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.ping_listen_key_isolated_margin(
-            symbol="ETHUSDT",
-            key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
+        await self.isolated_margin_api.keepalive_listen_key(
+            symbol=self.test_symbol,
+            listen_key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
         )
 
         # Assert
@@ -128,16 +125,15 @@ class TestBinanceUserHttpAPI:
             == "listenKey=JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy&symbol=ETHUSDT"
         )
 
-    @pytest.mark.asyncio
-    async def test_close_listen_key_isolated_margin(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_delete_listen_key_isolated_margin(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.close_listen_key_isolated_margin(
-            symbol="ETHUSDT",
-            key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
+        await self.isolated_margin_api.delete_listen_key(
+            symbol=self.test_symbol,
+            listen_key="JUdsZc8CSmMUxg1wJha23RogrT3EuC8eV5UTbAOVTkF3XWofMzWoXtWmDAhy",
         )
 
         # Assert

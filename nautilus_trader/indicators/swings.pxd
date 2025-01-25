@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -16,7 +16,7 @@
 from cpython.datetime cimport datetime
 
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class Swings(Indicator):
@@ -46,5 +46,5 @@ cdef class Swings(Indicator):
     cdef readonly int since_low
     """The bars since the last swing low.\n\n:returns: `int`"""
 
-    cpdef void handle_bar(self, Bar bar) except *
-    cpdef void update_raw(self, double high, double low, datetime timestamp) except *
+    cpdef void handle_bar(self, Bar bar)
+    cpdef void update_raw(self, double high, double low, datetime timestamp)

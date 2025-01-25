@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,7 +18,7 @@ from nautilus_trader.indicators.average.moving_average import MovingAverageType
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.atr cimport AverageTrueRange
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class VolatilityRatio(Indicator):
@@ -61,7 +61,7 @@ cdef class VolatilityRatio(Indicator):
     ):
         Condition.positive_int(fast_period, "fast_period")
         Condition.positive_int(slow_period, "slow_period")
-        Condition.true(fast_period < slow_period, "fast_period was >= slow_period")
+        Condition.is_true(fast_period < slow_period, "fast_period was >= slow_period")
         Condition.not_negative(value_floor, "value_floor")
 
         params = [
@@ -79,7 +79,7 @@ cdef class VolatilityRatio(Indicator):
         self._atr_slow = AverageTrueRange(slow_period, ma_type, use_previous, value_floor)
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -102,7 +102,7 @@ cdef class VolatilityRatio(Indicator):
         double high,
         double low,
         double close,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw value.
 
@@ -124,14 +124,14 @@ cdef class VolatilityRatio(Indicator):
 
         self._check_initialized()
 
-    cdef void _check_initialized(self) except *:
+    cdef void _check_initialized(self):
         if not self.initialized:
             self._set_has_inputs(True)
 
             if self._atr_fast.initialized and self._atr_slow.initialized:
                 self._set_initialized(True)
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._atr_fast.reset()
         self._atr_slow.reset()
         self.value = 0

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,18 +13,17 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from cpython.datetime cimport datetime
 from cpython.datetime cimport timedelta
-from libc.stdint cimport int64_t
 from libc.stdint cimport uint8_t
+from libc.stdint cimport uint64_t
 
-from nautilus_trader.common.clock cimport Clock
-from nautilus_trader.common.logging cimport LoggerAdapter
-from nautilus_trader.common.timer cimport TimeEvent
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.bar cimport BarType
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.common.component cimport Clock
+from nautilus_trader.common.component cimport Logger
+from nautilus_trader.common.component cimport TimeEvent
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport BarType
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
 
@@ -38,8 +37,8 @@ cdef class BarBuilder:
     """The size precision for the builders instrument.\n\n:returns: `uint8`"""
     cdef readonly bint initialized
     """If the builder is initialized.\n\n:returns: `bool`"""
-    cdef readonly int64_t ts_last
-    """The UNIX timestamp (nanoseconds) when the builder last updated.\n\n:returns: `int64`"""
+    cdef readonly uint64_t ts_last
+    """UNIX timestamp (nanoseconds) when the builder last updated.\n\n:returns: `uint64_t`"""
     cdef readonly int count
     """The builders current update count.\n\n:returns: `int`"""
 
@@ -49,28 +48,36 @@ cdef class BarBuilder:
     cdef Price _high
     cdef Price _low
     cdef Price _close
-    cdef object volume
+    cdef Quantity volume
 
-    cpdef void set_partial(self, Bar partial_bar) except *
-    cpdef void update(self, Price price, Quantity size, int64_t ts_event) except *
-    cpdef void reset(self) except *
+    cpdef void set_partial(self, Bar partial_bar)
+    cpdef void update(self, Price price, Quantity size, uint64_t ts_event)
+    cpdef void update_bar(self, Bar bar, Quantity volume, uint64_t ts_init)
+    cpdef void reset(self)
     cpdef Bar build_now(self)
-    cpdef Bar build(self, int64_t ts_event)
+    cpdef Bar build(self, uint64_t ts_event, uint64_t ts_init)
 
 
 cdef class BarAggregator:
-    cdef LoggerAdapter _log
+    cdef Logger _log
     cdef BarBuilder _builder
     cdef object _handler
+    cdef object _handler_backup
+    cdef bint _await_partial
+    cdef bint _batch_mode
+    cdef public bint is_running
 
     cdef readonly BarType bar_type
     """The aggregators bar type.\n\n:returns: `BarType`"""
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *
-    cpdef void handle_trade_tick(self, TradeTick tick) except *
-    cdef void _apply_update(self, Price price, Quantity size, int64_t ts_event) except *
-    cdef void _build_now_and_send(self) except *
-    cdef void _build_and_send(self, int64_t ts_event) except *
+    cpdef void handle_quote_tick(self, QuoteTick tick)
+    cpdef void handle_trade_tick(self, TradeTick tick)
+    cpdef void handle_bar(self, Bar bar)
+    cpdef void set_partial(self, Bar partial_bar)
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event)
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init)
+    cdef void _build_now_and_send(self)
+    cdef void _build_and_send(self, uint64_t ts_event, uint64_t ts_init)
 
 
 cdef class TickBarAggregator(BarAggregator):
@@ -90,20 +97,31 @@ cdef class ValueBarAggregator(BarAggregator):
 cdef class TimeBarAggregator(BarAggregator):
     cdef Clock _clock
     cdef bint _build_on_next_tick
-    cdef int64_t _stored_close_ns
+    cdef uint64_t _stored_open_ns
+    cdef uint64_t _stored_close_ns
+    cdef tuple _cached_update
+    cdef str _timer_name
+    cdef bint _is_left_open
+    cdef bint _timestamp_on_close
+    cdef bint _skip_first_non_full_bar
+    cdef bint _build_with_no_updates
+    cdef int _composite_bar_build_delay
+    cdef bint _add_delay
+    cdef uint64_t _batch_open_ns
+    cdef uint64_t _batch_next_close_ns
+    cdef object _time_bars_origin
 
     cdef readonly timedelta interval
     """The aggregators time interval.\n\n:returns: `timedelta`"""
-    cdef readonly int64_t interval_ns
-    """The aggregators time interval.\n\n:returns: `int64`"""
-    cdef readonly int64_t next_close_ns
-    """The aggregators next closing time.\n\n:returns: `int64`"""
+    cdef readonly uint64_t interval_ns
+    """The aggregators time interval.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t next_close_ns
+    """The aggregators next closing time.\n\n:returns: `uint64_t`"""
 
-    cpdef datetime get_start_time(self)
-    cpdef void set_partial(self, Bar partial_bar) except *
-    cpdef void stop(self) except *
+    cpdef void stop(self)
     cdef timedelta _get_interval(self)
-    cdef int64_t _get_interval_ns(self)
-    cpdef void _set_build_timer(self) except *
-    cpdef void _build_bar(self, int64_t ts_event) except *
-    cpdef void _build_event(self, TimeEvent event) except *
+    cdef uint64_t _get_interval_ns(self)
+    cpdef void _set_build_timer(self)
+    cdef void _batch_pre_update(self, uint64_t time_ns)
+    cdef void _batch_post_update(self, uint64_t time_ns)
+    cpdef void _build_bar(self, TimeEvent event)

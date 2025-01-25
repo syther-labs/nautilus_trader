@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,11 +18,11 @@ from nautilus_trader.accounting.accounts.betting cimport BettingAccount
 from nautilus_trader.accounting.accounts.cash cimport CashAccount
 from nautilus_trader.accounting.accounts.margin cimport MarginAccount
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.account_type cimport AccountType
+from nautilus_trader.core.rust.model cimport AccountType
 
 
-cdef dict _ISSUER_ACCOUNT_TYPE = {}         # type: dict[str, type]
-cdef dict _ISSUER_ACCOUNT_CALCULATED = {}   # type: dict[str, bool]
+cdef dict _ISSUER_ACCOUNT_TYPE = {}        # type: dict[str, type]
+cdef dict _ISSUER_ACCOUNT_CALCULATED = {}  # type: dict[str, bool]
 
 
 cdef class AccountFactory:
@@ -81,7 +81,7 @@ cdef class AccountFactory:
         Condition.not_none(event, "event")
 
         # Parse account issuer
-        cdef str issuer = event.account_id.value.split("-")[0]
+        cdef str issuer = event.account_id.get_issuer()
 
         # Determine account settings
         cdef type account_cls = _ISSUER_ACCOUNT_TYPE.get(issuer)
@@ -96,8 +96,8 @@ cdef class AccountFactory:
             return MarginAccount(event, calculated)
         elif event.account_type == AccountType.BETTING:
             return BettingAccount(event, calculated)
-        else:  # pragma: no cover (design-time error)
-            raise RuntimeError("invalid account type")
+        else:
+            raise RuntimeError("invalid `AccountType`")  # pragma: no cover (design-time error)
 
     @staticmethod
     def create(AccountState event) -> Account:
