@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,13 +13,12 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-
 from nautilus_trader.indicators.average.moving_average import MovingAverageType
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
 from nautilus_trader.indicators.keltner_channel cimport KeltnerChannel
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class KeltnerPosition(Indicator):
@@ -81,7 +80,7 @@ cdef class KeltnerPosition(Indicator):
 
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -104,7 +103,7 @@ cdef class KeltnerPosition(Indicator):
         double high,
         double low,
         double close,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw value.
 
@@ -133,6 +132,6 @@ cdef class KeltnerPosition(Indicator):
         else:
             self.value = 0
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._kc.reset()
         self.value = 0

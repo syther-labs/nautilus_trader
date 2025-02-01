@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -20,14 +20,14 @@ from nautilus_trader.model.orders.base cimport Order
 
 cdef class OrderList:
     """
-    Represents a list of bulk or related parent-child contingent orders.
+    Represents a list of bulk or related contingent orders.
 
     Parameters
     ----------
-    list_id : OrderListId
+    order_list_id : OrderListId
         The order list ID.
     orders : list[Order]
-        The order bulk for the list.
+        The contained orders list.
 
     Raises
     ------
@@ -39,24 +39,34 @@ cdef class OrderList:
 
     def __init__(
         self,
-        OrderListId list_id not None,
+        OrderListId order_list_id not None,
         list orders not None,
     ):
         Condition.not_empty(orders, "orders")
         Condition.list_type(orders, Order, "orders")
 
         cdef Order first = orders[0]
-        self.id = list_id
+        self.id = order_list_id
         self.instrument_id = first.instrument_id
+        self.strategy_id = first.strategy_id
         self.orders = orders
         self.first = first
         self.ts_init = first.ts_init
 
     def __eq__(self, OrderList other) -> bool:
-        return self.id.value == other.id.value
+        return self.id == other.id
 
     def __hash__(self) -> int:
-        return hash(self.id.value)
+        return hash(self.id)
+
+    def __len__(self) -> int:
+        return len(self.orders)
 
     def __repr__(self) -> str:
-        return f"OrderList(id={self.id.value}, instrument_id={self.instrument_id.value}, orders={self.orders})"
+        return (
+            f"OrderList("
+            f"id={self.id.to_str()}, "
+            f"instrument_id={self.instrument_id}, "
+            f"strategy_id={self.strategy_id}, "
+            f"orders={self.orders})"
+        )

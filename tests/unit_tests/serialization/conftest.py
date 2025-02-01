@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,16 +13,16 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, List
+from typing import Any
 
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.position import Position
-from tests.test_kit.stubs.data import TestDataStubs
-from tests.test_kit.stubs.events import TestEventStubs
-from tests.test_kit.stubs.execution import TestExecStubs
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
+from nautilus_trader.test_kit.stubs.events import TestEventStubs
+from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 
 
 def _make_order_events(order, **kwargs):
@@ -34,11 +34,13 @@ def _make_order_events(order, **kwargs):
     return submitted, accepted, filled
 
 
-def nautilus_objects() -> List[Any]:
-    """A list of nautilus instances for testing serialization"""
+def nautilus_objects() -> list[Any]:
+    """
+    Return a list of nautilus instances for testing serialization.
+    """
     instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD")
     position_id = PositionId("P-001")
-    buy = TestExecStubs.limit_order()
+    buy = TestExecStubs.limit_order(instrument)
     buy_submitted, buy_accepted, buy_filled = _make_order_events(
         buy,
         instrument=instrument,
@@ -57,12 +59,13 @@ def nautilus_objects() -> List[Any]:
     closed_position.apply(sell_filled)
 
     return [
-        TestDataStubs.ticker(),
-        TestDataStubs.quote_tick_5decimal(),
-        TestDataStubs.trade_tick_5decimal(),
+        # DATA
+        TestDataStubs.quote_tick(),
+        TestDataStubs.trade_tick(),
         TestDataStubs.bar_5decimal(),
-        TestDataStubs.venue_status_update(),
-        TestDataStubs.instrument_status_update(),
+        TestDataStubs.instrument_status(),
+        TestDataStubs.instrument_close(),
+        # EVENTS
         TestEventStubs.component_state_changed(),
         TestEventStubs.trading_state_changed(),
         TestEventStubs.betting_account_state(),

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -72,8 +72,8 @@ cdef class FiniteStateMachine:
         self,
         dict state_transition_table not None,
         int initial_state,
-        trigger_parser: Callable[[int], str]=str,
-        state_parser: Callable[[int], str]=str,
+        trigger_parser: Callable[[int], str] = str,
+        state_parser: Callable[[int], str] = str,
     ):
         if trigger_parser is None:
             trigger_parser = str
@@ -93,7 +93,19 @@ cdef class FiniteStateMachine:
     cdef str state_string_c(self):
         return self._state_parser(self.state)
 
-    cpdef void trigger(self, int trigger) except *:
+    @property
+    def state_string(self) -> str:
+        """
+        Return the current state as a string.
+
+        Returns
+        -------
+        str
+
+        """
+        return self.state_string_c()
+
+    cpdef void trigger(self, int trigger):
         """
         Process the FSM with the given trigger. The trigger must be valid for
         the FSMs current state.

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,7 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -27,14 +27,14 @@ class Expectancy(PortfolioStatistic):
     Calculates the expectancy from a realized PnLs series.
     """
 
-    def calculate_from_realized_pnls(self, realized_pnls: pd.Series) -> Optional[Any]:
+    def calculate_from_realized_pnls(self, realized_pnls: pd.Series) -> Any | None:
         # Preconditions
         if realized_pnls is None or realized_pnls.empty:
             return 0.0
 
         # Calculate statistic
-        avg_winner: Optional[float] = AvgWinner().calculate_from_realized_pnls(realized_pnls)
-        avg_loser: Optional[float] = AvgLoser().calculate_from_realized_pnls(realized_pnls)
+        avg_winner: float | None = AvgWinner().calculate_from_realized_pnls(realized_pnls)
+        avg_loser: float | None = AvgLoser().calculate_from_realized_pnls(realized_pnls)
         if avg_winner is None or avg_loser is None:
             return 0.0
 

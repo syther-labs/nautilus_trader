@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,10 +13,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
 from nautilus_trader.indicators.average.ama import AdaptiveMovingAverage
 from nautilus_trader.model.enums import PriceType
-from tests.test_kit.stubs.data import TestDataStubs
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
@@ -48,7 +48,7 @@ class TestAdaptiveMovingAverage:
         # Arrange
         # Arrange, Act
         for _i in range(10):
-            self.ama.update_raw(1.00000)
+            self.ama.update_raw(1.0)
 
         # Assert
         assert self.ama.initialized is True
@@ -57,27 +57,27 @@ class TestAdaptiveMovingAverage:
         # Arrange
         indicator = AdaptiveMovingAverage(10, 2, 30, PriceType.MID)
 
-        tick = TestDataStubs.quote_tick_5decimal(AUDUSD_SIM.id)
+        tick = TestDataStubs.quote_tick()
 
         # Act
         indicator.handle_quote_tick(tick)
 
         # Assert
         assert indicator.has_inputs
-        assert indicator.value == 1.00002
+        assert indicator.value == 1.0
 
     def test_handle_trade_tick_updates_indicator(self):
         # Arrange
         indicator = AdaptiveMovingAverage(10, 2, 30)
 
-        tick = TestDataStubs.trade_tick_5decimal(AUDUSD_SIM.id)
+        tick = TestDataStubs.trade_tick()
 
         # Act
         indicator.handle_trade_tick(tick)
 
         # Assert
         assert indicator.has_inputs
-        assert indicator.value == 1.00001
+        assert indicator.value == 1.0
 
     def test_handle_bar_updates_indicator(self):
         # Arrange
@@ -94,16 +94,16 @@ class TestAdaptiveMovingAverage:
 
     def test_value_with_one_input(self):
         # Arrange
-        self.ama.update_raw(1.00000)
+        self.ama.update_raw(1.0)
 
         # Act, Assert
         assert self.ama.value == 1.0
 
     def test_value_with_three_inputs(self):
         # Arrange
-        self.ama.update_raw(1.00000)
-        self.ama.update_raw(2.00000)
-        self.ama.update_raw(3.00000)
+        self.ama.update_raw(1.0)
+        self.ama.update_raw(2.0)
+        self.ama.update_raw(3.0)
 
         # Act, Assert
         assert self.ama.value == 2.135802469135802
@@ -111,7 +111,7 @@ class TestAdaptiveMovingAverage:
     def test_reset_successfully_returns_indicator_to_fresh_state(self):
         # Arrange
         for _i in range(1000):
-            self.ama.update_raw(1.00000)
+            self.ama.update_raw(1.0)
 
         # Act
         self.ama.reset()

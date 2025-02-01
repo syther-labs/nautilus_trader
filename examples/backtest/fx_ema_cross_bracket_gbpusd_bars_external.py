@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,67 +14,51 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import time
 from decimal import Decimal
 
 import pandas as pd
 
-from nautilus_trader.backtest.data.providers import TestDataProvider
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
-from nautilus_trader.backtest.data.wranglers import BarDataWrangler
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.backtest.models import FillModel
+from nautilus_trader.backtest.modules import FXRolloverInterestConfig
 from nautilus_trader.backtest.modules import FXRolloverInterestModule
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.config import RiskEngineConfig
 from nautilus_trader.examples.strategies.ema_cross_bracket import EMACrossBracket
 from nautilus_trader.examples.strategies.ema_cross_bracket import EMACrossBracketConfig
 from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.data.bar import BarType
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OMSType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
+from nautilus_trader.persistence.wranglers import BarDataWrangler
+from nautilus_trader.test_kit.providers import TestDataProvider
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 
 if __name__ == "__main__":
     # Configure backtest engine
     config = BacktestEngineConfig(
-        trader_id="BACKTESTER-001",
-        log_level="INFO",
-        risk_engine={
-            "bypass": True,  # Example of bypassing pre-trade risk checks for backtests
-            "max_notional_per_order": {"GBP/USD.SIM": 2_000_000},
-        },
+        trader_id=TraderId("BACKTESTER-001"),
+        logging=LoggingConfig(log_level="INFO"),
+        risk_engine=RiskEngineConfig(
+            bypass=True,  # Example of bypassing pre-trade risk checks for backtests
+        ),
     )
+
     # Build backtest engine
     engine = BacktestEngine(config=config)
 
-    # Setup trading instruments
-    SIM = Venue("SIM")
-    GBPUSD_SIM = TestInstrumentProvider.default_fx_ccy("GBP/USD", SIM)
-
-    # Setup wranglers
-    bid_wrangler = BarDataWrangler(
-        bar_type=BarType.from_str("GBP/USD.SIM-1-MINUTE-BID-EXTERNAL"),
-        instrument=GBPUSD_SIM,
-    )
-    ask_wrangler = BarDataWrangler(
-        bar_type=BarType.from_str("GBP/USD.SIM-1-MINUTE-ASK-EXTERNAL"),
-        instrument=GBPUSD_SIM,
-    )
-
-    # Setup data
+    # Optional plug in module to simulate rollover interest,
+    # the data is coming from packaged test data.
     provider = TestDataProvider()
-
-    # Build externally aggregated bars
-    bid_bars = bid_wrangler.process(
-        data=provider.read_csv_bars("fxcm-gbpusd-m1-bid-2012.csv")[:10000],
-    )
-    ask_bars = ask_wrangler.process(
-        data=provider.read_csv_bars("fxcm-gbpusd-m1-ask-2012.csv")[:10000],
-    )
-    engine.add_instrument(GBPUSD_SIM)
-    engine.add_bars(bid_bars)
-    engine.add_bars(ask_bars)
+    interest_rate_data = provider.read_csv("short-term-interest.csv")
+    config = FXRolloverInterestConfig(interest_rate_data)
+    fx_rollover_interest = FXRolloverInterestModule(config=config)
 
     # Create a fill model (optional)
     fill_model = FillModel(
@@ -84,38 +68,58 @@ if __name__ == "__main__":
         random_seed=42,
     )
 
-    # Optional plug in module to simulate rollover interest,
-    # the data is coming from packaged test data.
-    interest_rate_data = provider.read_csv("short-term-interest.csv")
-    fx_rollover_interest = FXRolloverInterestModule(rate_data=interest_rate_data)
-
-    # Add an exchange (multiple exchanges possible)
-    # Add starting balances for single-currency or multi-currency accounts
+    # Add a trading venue (multiple venues possible)
+    SIM = Venue("SIM")
     engine.add_venue(
         venue=SIM,
-        oms_type=OMSType.HEDGING,  # Venue will generate position IDs
+        oms_type=OmsType.HEDGING,  # Venue will generate position IDs
         account_type=AccountType.MARGIN,
         base_currency=USD,  # Standard single-currency account
-        starting_balances=[Money(1_000_000, USD)],
+        starting_balances=[Money(100_000, USD)],  # Single-currency or multi-currency accounts
         fill_model=fill_model,
         modules=[fx_rollover_interest],
+        bar_execution=True,  # If bar data should move the market (True by default)
     )
+
+    # Add instruments
+    GBPUSD_SIM = TestInstrumentProvider.default_fx_ccy("GBP/USD", SIM)
+    engine.add_instrument(GBPUSD_SIM)
+
+    # Set up wranglers
+    bid_wrangler = BarDataWrangler(
+        bar_type=BarType.from_str("GBP/USD.SIM-1-MINUTE-BID-EXTERNAL"),
+        instrument=GBPUSD_SIM,
+    )
+    ask_wrangler = BarDataWrangler(
+        bar_type=BarType.from_str("GBP/USD.SIM-1-MINUTE-ASK-EXTERNAL"),
+        instrument=GBPUSD_SIM,
+    )
+
+    # Add data
+    bid_bars = bid_wrangler.process(
+        data=provider.read_csv_bars("fxcm/gbpusd-m1-bid-2012.csv")[:10_000],
+    )
+    ask_bars = ask_wrangler.process(
+        data=provider.read_csv_bars("fxcm/gbpusd-m1-ask-2012.csv")[:10_000],
+    )
+    engine.add_data(bid_bars)
+    engine.add_data(ask_bars)
 
     # Configure your strategy
     config = EMACrossBracketConfig(
-        instrument_id=str(GBPUSD_SIM.id),
-        bar_type="GBP/USD.SIM-1-MINUTE-BID-EXTERNAL",
+        instrument_id=GBPUSD_SIM.id,
+        bar_type=BarType.from_str("GBP/USD.SIM-1-MINUTE-BID-EXTERNAL"),
         fast_ema_period=10,
         slow_ema_period=20,
         bracket_distance_atr=3.0,
-        trade_size=Decimal(1_000_000),
-        order_id_tag="001",
+        trade_size=Decimal(1_000),
     )
     # Instantiate and add your strategy
     strategy = EMACrossBracket(config=config)
     engine.add_strategy(strategy=strategy)
 
-    input("Press Enter to continue...")  # noqa (always Python 3)
+    time.sleep(0.1)
+    input("Press Enter to continue...")
 
     # Run the engine (from start to end of data)
     engine.run()

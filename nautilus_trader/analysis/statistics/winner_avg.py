@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,7 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ class AvgWinner(PortfolioStatistic):
     Calculates the average winner from a series of PnLs.
     """
 
-    def calculate_from_realized_pnls(self, realized_pnls: pd.Series) -> Optional[Any]:
+    def calculate_from_realized_pnls(self, realized_pnls: pd.Series) -> Any | None:
         # Preconditions
         if realized_pnls is None or realized_pnls.empty:
             return 0.0

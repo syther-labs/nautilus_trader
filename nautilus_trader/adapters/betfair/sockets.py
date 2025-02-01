@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,94 +14,177 @@
 # -------------------------------------------------------------------------------------------------
 
 import asyncio
-from typing import Callable
+import itertools
+import os
+from collections.abc import Callable
 
-import orjson
+import msgspec
 
-from nautilus_trader.adapters.betfair.client.core import BetfairClient
-from nautilus_trader.common.logging import Logger
-from nautilus_trader.common.logging import LoggerAdapter
-from nautilus_trader.network.socket import SocketClient
+from nautilus_trader.adapters.betfair.client import BetfairHttpClient
+from nautilus_trader.common.component import Logger
+from nautilus_trader.core.nautilus_pyo3 import SocketClient
+from nautilus_trader.core.nautilus_pyo3 import SocketConfig
 
 
 HOST = "stream-api.betfair.com"
-# HOST = "stream-api-integration.betfair.com"
 PORT = 443
 CRLF = b"\r\n"
 ENCODING = "utf-8"
-_UNIQUE_ID = 0
+UNIQUE_ID = itertools.count()
 
 
-class BetfairStreamClient(SocketClient):
+class BetfairStreamClient:
     """
-    Provides a streaming client for `Betfair`.
+    Provides a streaming client for Betfair.
     """
 
     def __init__(
         self,
-        client: BetfairClient,
-        logger_adapter: LoggerAdapter,
-        message_handler,
-        loop=None,
-        host=None,
-        port=None,
-        crlf=None,
-        encoding=None,
-    ):
-        super().__init__(
-            loop=loop or asyncio.get_event_loop(),
-            logger=logger_adapter.get_logger(),
-            host=host or HOST,
-            port=port or PORT,
-            handler=message_handler,
-            crlf=crlf or CRLF,
-            encoding=encoding or ENCODING,
+        http_client: BetfairHttpClient,
+        message_handler: Callable[[bytes], None],
+        host: str | None = HOST,
+        port: int | None = None,
+        crlf: bytes | None = None,
+        encoding: str | None = None,
+        certs_dir: str | None = None,
+    ) -> None:
+        self.handler = message_handler
+        self.host = host or HOST
+        self.port = port or PORT
+        self.crlf = crlf or CRLF
+        self.encoding = encoding or ENCODING
+        self.use_ssl = True
+        self.certs_dir = certs_dir or os.environ.get("BETFAIR_CERTS_DIR")
+
+        self._loop = asyncio.get_event_loop()
+        self._http_client = http_client
+        self._client: SocketClient | None = None
+        self._log = Logger(type(self).__name__)
+
+        self.unique_id = next(UNIQUE_ID)
+        self.is_connected: bool = False
+        self.disconnecting: bool = False
+
+    async def connect(self):
+        if not self._http_client.session_token:
+            await self._http_client.connect()
+
+        if self.is_connected:
+            self._log.info("Socket already connected")
+            return
+
+        self._log.info("Connecting Betfair socket client...")
+        config = SocketConfig(
+            url=f"{self.host}:{self.port}",
+            ssl=self.use_ssl,
+            suffix=self.crlf,
+            handler=self.handler,
+            heartbeat=(10, msgspec.json.encode({"op": "heartbeat"})),
+            certs_dir=self.certs_dir,
         )
-        self.client = client
-        self.unique_id = self.new_unique_id()
+        self._client = await SocketClient.connect(
+            config,
+            None,
+            # self.post_connection,  # this method itself needs the `self._client` reference
+            self.post_reconnection,
+            self.post_disconnection,
+        )
+        await self._post_connection()
 
-    def connect(self):
-        err = f"Must login to BetfairClient before calling connect on {self.__class__}"
-        assert self.client.session_token, err
-        return super().connect()
+        self.is_connected = True
+        self._log.info("Connected")
 
-    def new_unique_id(self) -> int:
-        global _UNIQUE_ID
-        _UNIQUE_ID += 1
-        return _UNIQUE_ID
+    async def reconnect(self):
+        if self._client is None:
+            self._log.warning("Cannot reconnect: not connected")
+            return
+
+        self.is_connected = False
+        self._log.info("Reconnecting...")
+
+        await self._client.reconnect()
+
+        self.is_connected = True
+        self._log.info("Reconnected")
+
+    async def disconnect(self):
+        if self._client is None:
+            self._log.warning("Cannot disconnect: not connected")
+            return
+
+        self.disconnecting = True
+        self._log.info("Disconnecting...")
+
+        await self._client.close()
+
+        self.is_connected = False
+        self._log.info("Disconnected")
+
+    async def _post_connection(self) -> None:
+        pass
+
+    def post_connection(self) -> None:
+        """
+        Actions to be performed post connection.
+        """
+
+    def post_reconnection(self) -> None:
+        """
+        Actions to be performed post connection.
+        """
+
+    def post_disconnection(self) -> None:
+        """
+        Actions to be performed post disconnection.
+        """
+
+    async def send(self, message: bytes) -> None:
+        if self._client is None:
+            raise RuntimeError("Cannot send message: no client")
+
+        # If the client is not currently active (e.g. in the middle of a reconnection),
+        # waits up to 2 seconds for it to become active before sending. This handles the case
+        # where a reconnection was triggered right before or during a send operation.
+        timeout = 2.0
+
+        try:
+            async with asyncio.timeout(timeout):
+                while not self._client.is_active():
+                    await asyncio.sleep(0.01)
+
+            await self._client.send(message)
+            self._log.debug("[SENT]")
+        except TimeoutError:
+            raise RuntimeError(f"Client did not become active within {timeout}s timeout")
 
     def auth_message(self):
         return {
             "op": "authentication",
             "id": self.unique_id,
-            "appKey": self.client.app_key,
-            "session": self.client.session_token,
+            "appKey": self._http_client.app_key,
+            "session": self._http_client.session_token,
         }
-
-    async def send_dict(self, data):
-        raw = orjson.dumps(data)
-        await self.send(raw)
 
 
 class BetfairOrderStreamClient(BetfairStreamClient):
     """
-    Provides an order stream client for `Betfair`.
+    Provides an order stream client for Betfair.
     """
 
     def __init__(
         self,
-        client: BetfairClient,
-        logger: Logger,
-        message_handler,
-        partition_matched_by_strategy_ref=True,
-        include_overall_position=None,
-        customer_strategy_refs=None,
+        http_client: BetfairHttpClient,
+        message_handler: Callable[[bytes], None],
+        certs_dir: str | None = None,
+        partition_matched_by_strategy_ref: bool = True,
+        include_overall_position: str | None = None,
+        customer_strategy_refs: str | None = None,
         **kwargs,
-    ):
+    ) -> None:
         super().__init__(
-            client=client,
-            logger_adapter=LoggerAdapter("BetfairOrderStreamClient", logger),
+            http_client=http_client,
             message_handler=message_handler,
+            certs_dir=certs_dir,
             **kwargs,
         )
         self.order_filter = {
@@ -110,7 +193,13 @@ class BetfairOrderStreamClient(BetfairStreamClient):
             "partitionMatchedByStrategyRef": partition_matched_by_strategy_ref,
         }
 
-    async def post_connection(self):
+    def post_connection(self):
+        self._loop.create_task(self._post_connection())
+
+    def post_reconnection(self):
+        self._loop.create_task(self._post_connection())
+
+    async def _post_connection(self):
         subscribe_msg = {
             "op": "orderSubscription",
             "id": self.unique_id,
@@ -118,45 +207,53 @@ class BetfairOrderStreamClient(BetfairStreamClient):
             "initialClk": None,
             "clk": None,
         }
-        await self.send_dict(data=self.auth_message())
-        await self.send_dict(data=subscribe_msg)
+        await self.send(msgspec.json.encode(self.auth_message()))
+        await self.send(msgspec.json.encode(subscribe_msg))
 
 
 class BetfairMarketStreamClient(BetfairStreamClient):
     """
-    Provides a `Betfair` market stream client.
+    Provides a Betfair market stream client.
     """
 
-    def __init__(self, client: BetfairClient, logger: Logger, message_handler: Callable, **kwargs):
-        self.subscription_message = None
+    def __init__(
+        self,
+        http_client: BetfairHttpClient,
+        message_handler: Callable,
+        certs_dir: str | None = None,
+        **kwargs,
+    ):
         super().__init__(
-            client=client,
-            logger_adapter=LoggerAdapter("BetfairMarketStreamClient", logger),
+            http_client=http_client,
             message_handler=message_handler,
+            certs_dir=certs_dir,
             **kwargs,
         )
 
     # TODO - Add support for initial_clk/clk reconnection
     async def send_subscription_message(
         self,
-        market_ids: list = None,
-        betting_types: list = None,
-        event_type_ids: list = None,
-        event_ids: list = None,
-        turn_in_play_enabled: bool = None,
-        market_types: list = None,
-        venues: list = None,
-        country_codes: list = None,
-        race_types: list = None,
-        initial_clk: str = None,
-        clk: str = None,
-        conflate_ms: int = None,
-        heartbeat_ms: int = None,
+        market_ids: list | None = None,
+        betting_types: list | None = None,
+        event_type_ids: list | None = None,
+        event_ids: list | None = None,
+        turn_in_play_enabled: bool | None = None,
+        market_types: list | None = None,
+        venues: list | None = None,
+        country_codes: list | None = None,
+        race_types: list | None = None,
+        initial_clk: str | None = None,
+        clk: str | None = None,
+        conflate_ms: int | None = None,
+        heartbeat_ms: int | None = None,
         segmentation_enabled: bool = True,
         subscribe_book_updates=True,
         subscribe_trade_updates=True,
         subscribe_market_definitions=True,
-    ):
+        subscribe_ticker=True,
+        subscribe_bsp_updates=True,
+        subscribe_bsp_projected=True,
+    ) -> None:
         filters = (
             market_ids,
             betting_types,
@@ -170,7 +267,7 @@ class BetfairMarketStreamClient(BetfairStreamClient):
         )
         assert any(filters), "Must pass at least one filter"
         assert any(
-            (subscribe_book_updates, subscribe_trade_updates)
+            (subscribe_book_updates, subscribe_trade_updates),
         ), "Must subscribe to either book updates or trades"
         if market_ids is not None:
             # TODO - Log a warning about inefficiencies of specific market ids - Won't receive any updates for new
@@ -193,8 +290,14 @@ class BetfairMarketStreamClient(BetfairStreamClient):
             data_fields.append("EX_ALL_OFFERS")
         if subscribe_trade_updates:
             data_fields.append("EX_TRADED")
+        if subscribe_ticker:
+            data_fields.extend(["EX_TRADED_VOL", "EX_LTP"])
         if subscribe_market_definitions:
             data_fields.append("EX_MARKET_DEF")
+        if subscribe_bsp_updates:
+            data_fields.append("SP_TRADED")
+        if subscribe_bsp_projected:
+            data_fields.append("SP_PROJECTED")
 
         message = {
             "op": "marketSubscription",
@@ -207,7 +310,14 @@ class BetfairMarketStreamClient(BetfairStreamClient):
             "heartbeatMs": heartbeat_ms,
             "segmentationEnabled": segmentation_enabled,
         }
-        await self.send_dict(data=message)
+        await self.send(msgspec.json.encode(message))
 
-    async def post_connection(self):
-        await self.send_dict(data=self.auth_message())
+    def post_connection(self) -> None:
+        self._loop.create_task(self._post_connection())
+
+    def post_reconnection(self) -> None:
+        super().post_reconnection()
+        self._loop.create_task(self._post_connection())
+
+    async def _post_connection(self) -> None:
+        await self.send(msgspec.json.encode(self.auth_message()))

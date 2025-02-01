@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -29,7 +29,7 @@ from nautilus_trader.indicators.fuzzy_enums.candle_body cimport CandleBodySize
 from nautilus_trader.indicators.fuzzy_enums.candle_direction cimport CandleDirection
 from nautilus_trader.indicators.fuzzy_enums.candle_size cimport CandleSize
 from nautilus_trader.indicators.fuzzy_enums.candle_wick cimport CandleWickSize
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class FuzzyCandle:
@@ -49,6 +49,7 @@ cdef class FuzzyCandle:
     lower_wick_size : CandleWickSize
         The candle fuzzy lower wick size.
     """
+
     def __init__(
         self,
         CandleDirection direction,
@@ -106,9 +107,9 @@ cdef class FuzzyCandlesticks(Indicator):
     ):
         Condition.positive_int(period, "period")
         Condition.positive(threshold1, "threshold1")
-        Condition.true(threshold2 > threshold1, "threshold2 was <= threshold1")
-        Condition.true(threshold3 > threshold2, "threshold3 was <= threshold2")
-        Condition.true(threshold4 > threshold3, "threshold4 was <= threshold3")
+        Condition.is_true(threshold2 > threshold1, "threshold2 was <= threshold1")
+        Condition.is_true(threshold3 > threshold2, "threshold3 was <= threshold2")
+        Condition.is_true(threshold4 > threshold3, "threshold4 was <= threshold3")
         super().__init__(
             params=[
                 period,
@@ -136,7 +137,7 @@ cdef class FuzzyCandlesticks(Indicator):
         self.vector = None
         self.value = None
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -160,7 +161,7 @@ cdef class FuzzyCandlesticks(Indicator):
         double high,
         double low,
         double close,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw values.
 
@@ -357,7 +358,7 @@ cdef class FuzzyCandlesticks(Indicator):
 
         return CandleWickSize.LARGE
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._lengths.clear()
         self._body_percents.clear()
         self._upper_wick_percents.clear()

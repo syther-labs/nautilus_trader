@@ -1,94 +1,29 @@
-# API Reference
+# Python API
 
-Welcome to the API reference for the Python/Cython implementation of NautilusTrader!
+Welcome to the Python API reference for NautilusTrader!
 
-The API reference is automatically generated from the latest NautilusTrader source 
-code from the repositories `develop` branch, using [sphinx](https://www.sphinx-doc.org/en/master/).
+The API reference provides detailed technical documentation for the NautilusTrader framework,
+including its modules, classes, methods, and functions. The reference is automatically generated
+from the latest NautilusTrader source code using [Sphinx](https://www.sphinx-doc.org/en/master/).
 
-```{note}
-Given the platforms development is still within an extended **beta** phase, at
-a future time we may separate the documentation between the `develop` branch, and
-more stable releases on `master`.
-```
+Please note that there are separate references for different versions of NautilusTrader:
 
-## Type Safety
-The design of the platform holds software correctness and safety at the highest level.
-Given most of the core production code is written in Cython, type safety is often provided
-at the C level.
+- **Latest**: This API reference is built from the head of the `master` branch and represents the latest stable release.
+- **Nightly**: This API reference is built from the head of the `nightly` branch and represents bleeding edge and experimental changes/features currently in development.
 
-```{note}
-If a function or methods parameter is not explicitly typed as allowing
-``None``, then you can assume you will receive a `ValueError` when passing ``None``
-as an argument (this is not explicitly documented).
-```
+You can select the desired API reference from the **Versions** top left drop down menu.
 
-## Framework Organization
-The codebase is organized around both layering of abstraction levels, and generally
-grouped into logical subpackages of cohesive concepts. You can navigate to the documentation
-for each of these subpackages from the left menu.
+Use the right navigation sidebar to explore the available modules and their contents.
+You can click on any item to view its detailed documentation, including parameter descriptions, and return value explanations.
 
-### Core / Low-Level
-- `core`: constants, functions and low-level components used throughout the framework.
-- `common`: common parts for assembling the frameworks various components.
-- `network`: low-level base components for networking clients.
-- `serialization`: serialization base components and serializer implementations.
-- `model`: defines a rich trading domain model.
+## Why Python?
 
-### System Components
-- `accounting`: different account types and account management machinery.
-- `adapters`: integration adapters for the platform including brokers and exchanges.
-- `analysis`: components relating to trading performance statistics and analysis.
-- `cache`: provides common caching infrastructure.
-- `data`: the data stack and data tooling for the platform.
-- `execution`: the execution stack for the platform.
-- `indicators`: a set of efficient indicators and analyzers.
-- `infrastructure`: technology specific infrastructure implementations.
-- `msgbus`: a universal message bus for connecting system components.
-- `persistence`: data storage, cataloging and retrieval, mainly to support backtesting.
-- `portfolio`: portfolio management functionality.
-- `risk`: risk specific components and tooling.
-- `trading`: trading domain specific components and tooling.
+Python was originally created decades ago as a simple scripting language with a clean straight
+forward syntax. It has since evolved into a fully fledged general purpose object-oriented
+programming language. Based on the TIOBE index, Python is currently the most popular programming language in the world.
+Not only that, Python has become the _de facto lingua franca_ of data science, machine learning, and artificial intelligence.
 
-### System Implementations
-- `backtest`: backtesting componentry as well as a backtest engine implementation.
-- `live`: live engine and client implementations as well as a node for live trading.
-
-## Errors and Exceptions
-Every attempt has been made to accurately document the possible exceptions which
-can be raised from NautilusTrader code, and the conditions which will trigger them.
-
-```{warning}
-There may be other undocumented exceptions which can be raised by Pythons standard 
-library, or from third party library dependencies.
-```
-
-
-```{eval-rst}
-.. toctree::
-   :maxdepth: 1
-   :glob:
-   :titlesonly:
-   :hidden:
-   
-   accounting.md
-   adapters/index.md
-   analysis.md
-   backtest.md
-   cache.md
-   common.md
-   core.md
-   data.md
-   execution.md
-   indicators.md
-   infrastructure.md
-   live.md
-   model/index.md
-   msgbus.md
-   network.md
-   persistence.md
-   portfolio.md
-   risk.md
-   serialization.md
-   trading.md
-```
-
+The language out of the box is not without its drawbacks however, especially in the context of
+implementing large performance-critical systems. Cython has addressed a lot of these issues, offering all the advantages
+of a statically typed language, embedded into Pythons rich ecosystem of software libraries and
+developer/user communities.

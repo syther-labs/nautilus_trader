@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,19 +13,22 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
+from nautilus_trader.indicators.average.dema import DoubleExponentialMovingAverage
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.average.hma import HullMovingAverage
 from nautilus_trader.indicators.average.ma_factory import MovingAverageFactory
 from nautilus_trader.indicators.average.moving_average import MovingAverageType
+from nautilus_trader.indicators.average.rma import WilderMovingAverage
 from nautilus_trader.indicators.average.sma import SimpleMovingAverage
+from nautilus_trader.indicators.average.vidya import VariableIndexDynamicAverage
 from nautilus_trader.indicators.average.wma import WeightedMovingAverage
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
 
 
-class TestMovingAverageConvergenceDivergence:
+class TestMaFactory:
     def test_simple_returns_expected_indicator(self):
         # Arrange, Act
         indicator = MovingAverageFactory.create(10, MovingAverageType.SIMPLE)
@@ -53,3 +56,28 @@ class TestMovingAverageConvergenceDivergence:
 
         # Assert
         assert isinstance(indicator, WeightedMovingAverage)
+
+    def test_wilde_returns_expected_indicator(self):
+        # Arrange, Act
+        indicator = MovingAverageFactory.create(10, MovingAverageType.WILDER)
+
+        # Assert
+        assert isinstance(indicator, WilderMovingAverage)
+
+    def test_double_exponential_returns_expected_indicator(self):
+        # Arrange, Act
+        indicator = MovingAverageFactory.create(10, MovingAverageType.DOUBLE_EXPONENTIAL)
+
+        # Assert
+        assert isinstance(indicator, DoubleExponentialMovingAverage)
+
+    def test_variable_index_dynamic_returns_expected_indicator(self):
+        # Arrange, Act
+        indicator = MovingAverageFactory.create(
+            10,
+            MovingAverageType.VARIABLE_INDEX_DYNAMIC,
+            cmo_ma_type=MovingAverageType.SIMPLE,
+        )
+
+        # Assert
+        assert isinstance(indicator, VariableIndexDynamicAverage)
