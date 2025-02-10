@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -12,12 +12,13 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
 """
-Contains the test suite for `NautilusTrader`.
+The test suite for `NautilusTrader` including unit, integration, acceptance and
+performance tests.
 """
 
-import os
+from pathlib import Path
 
 
-TESTS_PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
+TESTS_PACKAGE_ROOT = Path(__file__).parent.resolve()
+TEST_DATA_DIR = TESTS_PACKAGE_ROOT / "test_data"

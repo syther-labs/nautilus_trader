@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,16 +13,15 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.accounting.accounts.base cimport Account
 from nautilus_trader.accounting.accounts.cash cimport CashAccount
 from nautilus_trader.accounting.accounts.margin cimport MarginAccount
 from nautilus_trader.cache.base cimport CacheFacade
-from nautilus_trader.common.clock cimport Clock
-from nautilus_trader.common.logging cimport LoggerAdapter
-from nautilus_trader.common.uuid cimport UUIDFactory
-from nautilus_trader.model.c_enums.order_side cimport OrderSide
+from nautilus_trader.common.component cimport Clock
+from nautilus_trader.common.component cimport Logger
+from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.model.events.account cimport AccountState
 from nautilus_trader.model.events.order cimport OrderFilled
 from nautilus_trader.model.instruments.base cimport Instrument
@@ -31,16 +30,15 @@ from nautilus_trader.model.objects cimport Money
 
 cdef class AccountsManager:
     cdef Clock _clock
-    cdef UUIDFactory _uuid_factory
-    cdef LoggerAdapter _log
+    cdef Logger _log
     cdef CacheFacade _cache
 
     cdef AccountState update_balances(self, Account account, Instrument instrument, OrderFilled fill)
-    cdef AccountState update_orders(self, Account account, Instrument instrument, list orders_open, int64_t ts_event)
-    cdef AccountState update_positions(self, MarginAccount account, Instrument instrument, list positions_open, int64_t ts_event)
-    cdef AccountState _update_balance_locked(self, CashAccount account, Instrument instrument, list orders_open, int64_t ts_event)
-    cdef AccountState _update_margin_init(self, MarginAccount account, Instrument instrument, list orders_open, int64_t ts_event)
-    cdef void _update_balance_single_currency(self, Account account, OrderFilled fill, Money pnl) except *
-    cdef void _update_balance_multi_currency(self, Account account, OrderFilled fill, list pnls) except *
-    cdef AccountState _generate_account_state(self, Account account, int64_t ts_event)
+    cdef AccountState update_orders(self, Account account, Instrument instrument, list orders_open, uint64_t ts_event)
+    cdef AccountState update_positions(self, MarginAccount account, Instrument instrument, list positions_open, uint64_t ts_event)
+    cdef AccountState _update_balance_locked(self, CashAccount account, Instrument instrument, list orders_open, uint64_t ts_event)
+    cdef AccountState _update_margin_init(self, MarginAccount account, Instrument instrument, list orders_open, uint64_t ts_event)
+    cdef void _update_balance_single_currency(self, Account account, OrderFilled fill, Money pnl)
+    cdef void _update_balance_multi_currency(self, Account account, OrderFilled fill, list pnls)
+    cdef AccountState _generate_account_state(self, Account account, uint64_t ts_event)
     cdef object _calculate_xrate_to_base(self, Account account, Instrument instrument, OrderSide side)

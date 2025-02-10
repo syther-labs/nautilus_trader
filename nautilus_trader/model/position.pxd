@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,14 +13,11 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from decimal import Decimal
-
-from libc.stdint cimport int64_t
 from libc.stdint cimport uint8_t
+from libc.stdint cimport uint64_t
 
-from nautilus_trader.model.c_enums.order_side cimport OrderSide
-from nautilus_trader.model.c_enums.position_side cimport PositionSide
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.rust.model cimport OrderSide
+from nautilus_trader.core.rust.model cimport PositionSide
 from nautilus_trader.model.events.order cimport OrderFilled
 from nautilus_trader.model.identifiers cimport AccountId
 from nautilus_trader.model.identifiers cimport ClientOrderId
@@ -29,6 +26,7 @@ from nautilus_trader.model.identifiers cimport PositionId
 from nautilus_trader.model.identifiers cimport StrategyId
 from nautilus_trader.model.identifiers cimport TradeId
 from nautilus_trader.model.identifiers cimport TraderId
+from nautilus_trader.model.objects cimport Currency
 from nautilus_trader.model.objects cimport Money
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
@@ -37,8 +35,8 @@ from nautilus_trader.model.objects cimport Quantity
 cdef class Position:
     cdef list _events
     cdef list _trade_ids
-    cdef object _buy_qty
-    cdef object _sell_qty
+    cdef Quantity _buy_qty
+    cdef Quantity _sell_qty
     cdef dict _commissions
 
     cdef readonly TraderId trader_id
@@ -51,14 +49,16 @@ cdef class Position:
     """The position ID.\n\n:returns: `PositionId`"""
     cdef readonly AccountId account_id
     """The account ID associated with the position.\n\n:returns: `AccountId`"""
-    cdef readonly ClientOrderId from_order
-    """The client order ID for the order which initially opened the position.\n\n:returns: `ClientOrderId`"""
+    cdef readonly ClientOrderId opening_order_id
+    """The client order ID for the order which opened the position.\n\n:returns: `ClientOrderId`"""
+    cdef readonly ClientOrderId closing_order_id
+    """The client order ID for the order which closed the position.\n\n:returns: `ClientOrderId` or ``None``"""
     cdef readonly OrderSide entry
     """The position entry order side.\n\n:returns: `OrderSide`"""
     cdef readonly PositionSide side
     """The current position side.\n\n:returns: `PositionSide`"""
-    cdef readonly object net_qty
-    """The current net quantity (positive for position side ``LONG``, negative for ``SHORT``).\n\n:returns: `Decimal`"""
+    cdef readonly double signed_qty
+    """The current signed quantity (positive for position side ``LONG``, negative for ``SHORT``).\n\n:returns: `double`"""
     cdef readonly Quantity quantity
     """The current open quantity.\n\n:returns: `Quantity`"""
     cdef readonly Quantity peak_qty
@@ -75,28 +75,26 @@ cdef class Position:
     """The position quote currency.\n\n:returns: `Currency`"""
     cdef readonly Currency base_currency
     """The position base currency (if applicable).\n\n:returns: `Currency` or ``None``"""
-    cdef readonly Currency cost_currency
-    """The position cost currency (for PnL).\n\n:returns: `Currency`"""
-    cdef readonly int64_t ts_init
-    """The UNIX timestamp (nanoseconds) when the object was initialized.\n\n:returns: `int64`"""
-    cdef readonly int64_t ts_opened
-    """The UNIX timestamp (nanoseconds) when the position was opened.\n\n:returns: `int64`"""
-    cdef readonly int64_t ts_last
-    """The UNIX timestamp (nanoseconds) when the last fill occurred.\n\n:returns: `int64`"""
-    cdef readonly int64_t ts_closed
-    """The UNIX timestamp (nanoseconds) when the position was closed.\n\n:returns: `int64`"""
-    cdef readonly int64_t duration_ns
-    """The total open duration (nanoseconds).\n\n:returns: `int64`"""
-    cdef readonly object avg_px_open
-    """The average open price.\n\n:returns: `Decimal`"""
-    cdef readonly object avg_px_close
-    """The average close price.\n\n:returns: `Decimal` or ``None``"""
-    cdef readonly object realized_points
-    """The current realized points for the position.\n\n:returns: `Decimal`"""
-    cdef readonly object realized_return
-    """The current realized return for the position.\n\n:returns: `Decimal`"""
+    cdef readonly Currency settlement_currency
+    """The position settlement currency (for PnL).\n\n:returns: `Currency`"""
+    cdef readonly uint64_t ts_init
+    """UNIX timestamp (nanoseconds) when the object was initialized.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t ts_opened
+    """UNIX timestamp (nanoseconds) when the position was opened.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t ts_last
+    """UNIX timestamp (nanoseconds) when the last event occurred.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t ts_closed
+    """UNIX timestamp (nanoseconds) when the position was closed.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t duration_ns
+    """The total open duration (nanoseconds).\n\n:returns: `uint64_t`"""
+    cdef readonly double avg_px_open
+    """The average open price.\n\n:returns: `double`"""
+    cdef readonly double avg_px_close
+    """The average close price.\n\n:returns: `double`"""
+    cdef readonly double realized_return
+    """The current realized return for the position.\n\n:returns: `double`"""
     cdef readonly Money realized_pnl
-    """The current realized PnL for the position (including commissions).\n\n:returns: `Money`"""
+    """The current realized PnL for the position (including commissions).\n\n:returns: `Money` or ``None``"""
 
     cpdef str info(self)
     cpdef dict to_dict(self)
@@ -107,30 +105,33 @@ cdef class Position:
     cdef list events_c(self)
     cdef OrderFilled last_event_c(self)
     cdef TradeId last_trade_id_c(self)
-    cdef int event_count_c(self) except *
-    cdef bint is_long_c(self) except *
-    cdef bint is_short_c(self) except *
-    cdef bint is_open_c(self) except *
-    cdef bint is_closed_c(self) except *
+    cdef bint has_trade_id_c(self, TradeId trade_id)
+    cdef int event_count_c(self)
+    cdef bint is_long_c(self)
+    cdef bint is_short_c(self)
+    cdef bint is_open_c(self)
+    cdef bint is_closed_c(self)
 
     @staticmethod
-    cdef PositionSide side_from_order_side_c(OrderSide side) except *
-    cpdef bint is_opposite_side(self, OrderSide side) except *
+    cdef PositionSide side_from_order_side_c(OrderSide side)
+    cpdef signed_decimal_qty(self)
+    cpdef bint is_opposite_side(self, OrderSide side)
 
-    cpdef void apply(self, OrderFilled fill) except *
+    cpdef void apply(self, OrderFilled fill)
 
-    cpdef Money notional_value(self, Price last)
-    cpdef Money calculate_pnl(self, avg_px_open: Decimal, avg_px_close: Decimal, quantity: Decimal)
-    cpdef Money unrealized_pnl(self, Price last)
-    cpdef Money total_pnl(self, Price last)
+    cpdef Money notional_value(self, Price price)
+    cpdef Money calculate_pnl(self, double avg_px_open, double avg_px_close, Quantity quantity)
+    cpdef Money unrealized_pnl(self, Price price)
+    cpdef Money total_pnl(self, Price price)
     cpdef list commissions(self)
 
-    cdef void _handle_buy_order_fill(self, OrderFilled fill) except *
-    cdef void _handle_sell_order_fill(self, OrderFilled fill) except *
-    cdef object _calculate_avg_px(self, avg_px: Decimal, qty: Decimal, OrderFilled fill)
-    cdef object _calculate_avg_px_open_px(self, OrderFilled fill)
-    cdef object _calculate_avg_px_close_px(self, OrderFilled fill)
-    cdef object _calculate_points(self, avg_px_open: Decimal, avg_px_close: Decimal)
-    cdef object _calculate_points_inverse(self, avg_px_open: Decimal, avg_px_close: Decimal)
-    cdef object _calculate_return(self, avg_px_open: Decimal, avg_px_close: Decimal)
-    cdef object _calculate_pnl(self, avg_px_open: Decimal, avg_px_close: Decimal, quantity: Decimal)
+    cdef void _check_duplicate_trade_id(self, OrderFilled fill)
+    cdef void _handle_buy_order_fill(self, OrderFilled fill)
+    cdef void _handle_sell_order_fill(self, OrderFilled fill)
+    cdef double _calculate_avg_px(self, double avg_px, double qty, double last_px, double last_qty)
+    cdef double _calculate_avg_px_open_px(self, double last_px, double last_qty)
+    cdef double _calculate_avg_px_close_px(self, double last_px, double last_qty)
+    cdef double _calculate_points(self, double avg_px_open, double avg_px_close)
+    cdef double _calculate_points_inverse(self, double avg_px_open, double avg_px_close)
+    cdef double _calculate_return(self, double avg_px_open, double avg_px_close)
+    cdef double _calculate_pnl(self, double avg_px_open, double avg_px_close, double quantity)

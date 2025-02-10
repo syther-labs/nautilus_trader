@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,12 +15,17 @@
 
 import random
 
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.core.correctness cimport Condition
-
-
-cdef int64_t NANOSECONDS_IN_MILLISECOND = 1_000_000
+from nautilus_trader.core.rust.core cimport NANOSECONDS_IN_MILLISECOND
+from nautilus_trader.core.rust.model cimport LiquiditySide
+from nautilus_trader.model.functions cimport liquidity_side_to_str
+from nautilus_trader.model.instruments.base cimport Instrument
+from nautilus_trader.model.objects cimport Money
+from nautilus_trader.model.objects cimport Price
+from nautilus_trader.model.objects cimport Quantity
+from nautilus_trader.model.orders.base cimport Order
 
 
 cdef class FillModel:
@@ -49,10 +54,10 @@ cdef class FillModel:
 
     def __init__(
         self,
-        double prob_fill_on_limit=1.0,
-        double prob_fill_on_stop=1.0,
-        double prob_slippage=0.0,
-        random_seed=None,
+        double prob_fill_on_limit = 1.0,
+        double prob_fill_on_stop = 1.0,
+        double prob_slippage = 0.0,
+        random_seed: int | None = None,
     ):
         Condition.in_range(prob_fill_on_limit, 0.0, 1.0, "prob_fill_on_limit")
         Condition.in_range(prob_fill_on_stop, 0.0, 1.0, "prob_fill_on_stop")
@@ -67,7 +72,7 @@ cdef class FillModel:
         self.prob_fill_on_stop = prob_fill_on_stop
         self.prob_slippage = prob_slippage
 
-    cpdef bint is_limit_filled(self) except *:
+    cpdef bint is_limit_filled(self):
         """
         Return a value indicating whether a ``LIMIT`` order filled.
 
@@ -78,7 +83,7 @@ cdef class FillModel:
         """
         return self._event_success(self.prob_fill_on_limit)
 
-    cpdef bint is_stop_filled(self) except *:
+    cpdef bint is_stop_filled(self):
         """
         Return a value indicating whether a ``STOP-MARKET`` order filled.
 
@@ -89,7 +94,7 @@ cdef class FillModel:
         """
         return self._event_success(self.prob_fill_on_stop)
 
-    cpdef bint is_slipped(self) except *:
+    cpdef bint is_slipped(self):
         """
         Return a value indicating whether an order fill slipped.
 
@@ -100,7 +105,7 @@ cdef class FillModel:
         """
         return self._event_success(self.prob_slippage)
 
-    cdef bint _event_success(self, double probability) except *:
+    cdef bint _event_success(self, double probability):
         # Return a result indicating whether an event occurred based on the
         # given probability of the event occurring [0, 1].
         if probability == 0:
@@ -140,10 +145,10 @@ cdef class LatencyModel:
 
     def __init__(
         self,
-        int base_latency_nanos = NANOSECONDS_IN_MILLISECOND,
-        int insert_latency_nanos = 0,
-        int update_latency_nanos = 0,
-        int cancel_latency_nanos = 0,
+        uint64_t base_latency_nanos = NANOSECONDS_IN_MILLISECOND,
+        uint64_t insert_latency_nanos = 0,
+        uint64_t update_latency_nanos = 0,
+        uint64_t cancel_latency_nanos = 0,
     ):
         Condition.not_negative_int(base_latency_nanos, "base_latency_nanos")
         Condition.not_negative_int(insert_latency_nanos, "insert_latency_nanos")
@@ -154,3 +159,149 @@ cdef class LatencyModel:
         self.insert_latency_nanos = base_latency_nanos + insert_latency_nanos
         self.update_latency_nanos = base_latency_nanos + update_latency_nanos
         self.cancel_latency_nanos = base_latency_nanos + cancel_latency_nanos
+
+
+cdef class FeeModel:
+    """
+    Provides an abstract fee model for trades.
+    """
+
+    cpdef Money get_commission(
+        self,
+        Order order,
+        Quantity fill_qty,
+        Price fill_px,
+        Instrument instrument,
+    ):
+        """
+        Return the commission for a trade.
+
+        Parameters
+        ----------
+        order : Order
+            The order to calculate the commission for.
+        fill_qty : Quantity
+            The fill quantity of the order.
+        fill_px : Price
+            The fill price of the order.
+        instrument : Instrument
+            The instrument for the order.
+
+        Returns
+        -------
+        Money
+
+        """
+        raise NotImplementedError("Method 'get_commission' must be implemented in a subclass.")
+
+
+cdef class MakerTakerFeeModel(FeeModel):
+    """
+    Provide a fee model for trades based on a maker/taker fee schedule
+    and notional value of the trade.
+
+    """
+
+    cpdef Money get_commission(
+        self,
+        Order order,
+        Quantity fill_qty,
+        Price fill_px,
+        Instrument instrument,
+    ):
+        cdef double notional = instrument.notional_value(
+            quantity=fill_qty,
+            price=fill_px,
+            use_quote_for_inverse=False,
+        ).as_f64_c()
+
+        cdef double commission_f64
+        if order.liquidity_side == LiquiditySide.MAKER:
+            commission_f64 = notional * float(instrument.maker_fee)
+        elif order.liquidity_side == LiquiditySide.TAKER:
+            commission_f64 = notional * float(instrument.taker_fee)
+        else:
+            raise ValueError(
+                f"invalid `LiquiditySide`, was {liquidity_side_to_str(order.liquidity_side)}"
+            )
+
+        cdef Money commission
+        if instrument.is_inverse:  # Not using quote for inverse (see above):
+            commission = Money(commission_f64, instrument.base_currency)
+        else:
+            commission = Money(commission_f64, instrument.quote_currency)
+
+        return commission
+
+
+cdef class FixedFeeModel(FeeModel):
+    """
+    Provides a fixed fee model for trades.
+
+    Parameters
+    ----------
+    commission : Money
+        The fixed commission amount for trades.
+    charge_commission_once : bool, default True
+        Whether to charge the commission once per order or per fill.
+
+    Raises
+    ------
+    ValueError
+        If `commission` is not a positive amount.
+
+    """
+
+    def __init__(
+        self,
+        Money commission not None,
+        bint charge_commission_once: bool = True,
+    ):
+        Condition.positive(commission, "commission")
+
+        self._commission = commission
+        self._zero_commission = Money(0, commission.currency)
+        self._charge_commission_once = charge_commission_once
+
+    cpdef Money get_commission(
+        self,
+        Order order,
+        Quantity fill_qty,
+        Price fill_px,
+        Instrument instrument,
+    ):
+        if not self._charge_commission_once or order.filled_qty == 0:
+            return self._commission
+        else:
+            return self._zero_commission
+
+
+cdef class PerContractFeeModel(FeeModel):
+    """
+    Provides a fee model which charges a commission per contract traded.
+
+    Parameters
+    ----------
+    commission : Money
+        The commission amount per contract.
+
+    Raises
+    ------
+    ValueError
+        If `commission` is negative (< 0).
+
+    """
+
+    def __init__(self, Money commission not None):
+        Condition.not_negative(commission, "commission")
+
+        self._commission = commission
+
+    cpdef Money get_commission(
+        self,
+        Order order,
+        Quantity fill_qty,
+        Price fill_px,
+        Instrument instrument,
+    ):
+        return Money(self._commission * fill_qty, self._commission.currency)

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,15 +14,15 @@
 # -------------------------------------------------------------------------------------------------
 
 from nautilus_trader.indicators.swings import Swings
-from nautilus_trader.model.data.bar import Bar
-from nautilus_trader.model.data.bar import BarSpecification
-from nautilus_trader.model.data.bar import BarType
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from tests.test_kit.stubs import UNIX_EPOCH
-from tests.test_kit.stubs.identifiers import TestIdStubs
+from nautilus_trader.test_kit.stubs.data import UNIX_EPOCH
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 
 AUDUSD_SIM = TestIdStubs.audusd_id()
@@ -57,11 +57,11 @@ class TestSwings:
         # Arrange
         bar = Bar(
             AUDUSD_1_MIN_BID,
-            Price.from_str("1.00000"),
+            Price.from_str("1.00001"),
             Price.from_str("1.00004"),
-            Price.from_str("1.00002"),
+            Price.from_str("1.00000"),
             Price.from_str("1.00003"),
-            Quantity.from_int(100000),
+            Quantity.from_int(100_000),
             0,
             0,
         )

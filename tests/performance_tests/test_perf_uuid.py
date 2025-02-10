@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,44 +15,25 @@
 
 import uuid
 
-import pytest
-
 from nautilus_trader.core.uuid import UUID4
-from tests.test_kit.performance import PerformanceBench
-from tests.test_kit.performance import PerformanceHarness
 
 
-class TestUUIDPerformance(PerformanceHarness):
-    @pytest.mark.benchmark(group="core", disable_gc=True, warmup=True)
-    @staticmethod
-    def test_make_builtin_uuid(benchmark):
-        benchmark.pedantic(
-            target=uuid.uuid4,
-            iterations=100000,
-            rounds=1,
-        )
+def test_make_builtin_uuid(benchmark):
+    benchmark(uuid.uuid4)
 
-    def test_make_builtin_uuid_bench(self):
-        PerformanceBench.profile_function(
-            target=uuid.uuid4,
-            runs=100000,
-            iterations=1,
-        )
-        # ~0.0ms / ~2.1μs / 2067ns minimum of 100,000 runs @ 1 iteration each run.
 
-    @pytest.mark.benchmark(group="core", disable_gc=True, warmup=True)
-    @staticmethod
-    def test_make_nautilus_uuid(benchmark):
-        benchmark.pedantic(
-            target=UUID4,
-            iterations=100000,
-            rounds=1,
-        )
+def test_make_nautilus_uuid(benchmark):
+    benchmark(UUID4)
 
-    def test_make_nautilus_uuid_bench(self):
-        PerformanceBench.profile_function(
-            target=UUID4,
-            runs=100000,
-            iterations=1,
-        )
-        # ~0.0ms / ~0.7μs / 736ns minimum of 100,000 runs @ 1 iteration each run.
+
+def test_nautilus_uuid_value(benchmark):
+    uuid = UUID4()
+
+    benchmark(lambda: uuid.value)
+
+
+def test_nautilus_uuid_from_value(benchmark):
+    uuid = UUID4()
+    value = uuid.value
+
+    benchmark(lambda: UUID4.from_str(value))

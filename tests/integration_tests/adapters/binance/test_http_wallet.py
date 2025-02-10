@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,41 +13,85 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import asyncio
+import pkgutil
 
 import pytest
+from aiohttp import ClientResponse
 
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.wallet import BinanceSpotWalletHttpAPI
-from nautilus_trader.common.clock import LiveClock
-from nautilus_trader.common.logging import Logger
+from nautilus_trader.adapters.binance.spot.schemas.wallet import BinanceSpotTradeFee
+from nautilus_trader.common.component import LiveClock
 
 
+@pytest.mark.skip(reason="WIP")
 class TestBinanceUserHttpAPI:
     def setup(self):
         # Fixture Setup
         clock = LiveClock()
-        logger = Logger(clock=clock)
-        self.client = BinanceHttpClient(  # noqa: S106 (no hardcoded password)
-            loop=asyncio.get_event_loop(),
+        self.client = BinanceHttpClient(
             clock=clock,
-            logger=logger,
-            key="SOME_BINANCE_API_KEY",
-            secret="SOME_BINANCE_API_SECRET",
+            api_key="SOME_BINANCE_API_KEY",
+            api_secret="SOME_BINANCE_API_SECRET",
+            base_url="https://api.binance.com/",  # Spot/Margin
         )
 
-        self.api = BinanceSpotWalletHttpAPI(self.client)
+        self.api = BinanceSpotWalletHttpAPI(self.client, clock)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trade_fee(self, mocker):
         # Arrange
-        await self.client.connect()
-        mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
+        async def async_mock():
+            return pkgutil.get_data(
+                package="tests.integration_tests.adapters.binance.resources.http_responses",
+                resource="http_wallet_trading_fee.json",
+            )
+
+        mock_request = mocker.patch.object(
+            target=self.client,
+            attribute="send_request",
+            spec=ClientResponse,
+            return_value=async_mock(),
+        )
 
         # Act
-        await self.api.trade_fee()
+        response = await self.api.query_spot_trade_fees(symbol="BTCUSDT")
 
         # Assert
-        request = mock_send_request.call_args.kwargs
-        assert request["method"] == "GET"
-        assert request["url"] == "https://api.binance.com/sapi/v1/asset/tradeFee"
+        name, args, kwargs = mock_request.call_args[0]
+        assert name == "GET"
+        assert args == "/sapi/v1/asset/tradeFee"
+        assert kwargs["symbol"] == "BTCUSDT"
+        assert "signature" in kwargs
+        assert "timestamp" in kwargs
+        assert len(response) == 1
+        assert isinstance(response[0], BinanceSpotTradeFee)
+
+    @pytest.mark.asyncio()
+    async def test_trade_fees(self, mocker):
+        # Arrange
+        async def async_mock():
+            return pkgutil.get_data(
+                package="tests.integration_tests.adapters.binance.resources.http_responses",
+                resource="http_wallet_trading_fees.json",
+            )
+
+        mock_request = mocker.patch.object(
+            target=self.client,
+            attribute="send_request",
+            spec=ClientResponse,
+            return_value=async_mock(),
+        )
+
+        # Act
+        response = await self.api.query_spot_trade_fees()
+
+        # Assert
+        name, args, kwargs = mock_request.call_args[0]
+        assert name == "GET"
+        assert args == "/sapi/v1/asset/tradeFee"
+        assert "signature" in kwargs
+        assert "timestamp" in kwargs
+        assert len(response) == 2
+        assert isinstance(response[0], BinanceSpotTradeFee)
+        assert isinstance(response[1], BinanceSpotTradeFee)

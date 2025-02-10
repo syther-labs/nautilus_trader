@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,28 +17,36 @@ from nautilus_trader.accounting.accounts.base cimport Account
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.objects cimport Money
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class PortfolioFacade:
 
-# -- QUERIES ---------------------------------------------------------------------------------------  # noqa
+# -- QUERIES --------------------------------------------------------------------------------------  # noqa
 
     cdef readonly bint initialized
     """If the portfolio is initialized.\n\n:returns: `bool`"""
+
+    cdef readonly analyzer
+    """The portfolios analyzer.\n\n:returns: `PortfolioAnalyzer`"""
 
     cpdef Account account(self, Venue venue)
 
     cpdef dict balances_locked(self, Venue venue)
     cpdef dict margins_init(self, Venue venue)
     cpdef dict margins_maint(self, Venue venue)
+    cpdef dict realized_pnls(self, Venue venue)
     cpdef dict unrealized_pnls(self, Venue venue)
+    cpdef dict total_pnls(self, Venue venue)
     cpdef dict net_exposures(self, Venue venue)
 
-    cpdef Money unrealized_pnl(self, InstrumentId instrument_id)
-    cpdef Money net_exposure(self, InstrumentId instrument_id)
+    cpdef Money realized_pnl(self, InstrumentId instrument_id)
+    cpdef Money unrealized_pnl(self, InstrumentId instrument_id, Price price=*)
+    cpdef Money total_pnl(self, InstrumentId instrument_id, Price price=*)
+    cpdef Money net_exposure(self, InstrumentId instrument_id, Price price=*)
     cpdef object net_position(self, InstrumentId instrument_id)
 
-    cpdef bint is_net_long(self, InstrumentId instrument_id) except *
-    cpdef bint is_net_short(self, InstrumentId instrument_id) except *
-    cpdef bint is_flat(self, InstrumentId instrument_id) except *
-    cpdef bint is_completely_flat(self) except *
+    cpdef bint is_net_long(self, InstrumentId instrument_id)
+    cpdef bint is_net_short(self, InstrumentId instrument_id)
+    cpdef bint is_flat(self, InstrumentId instrument_id)
+    cpdef bint is_completely_flat(self)

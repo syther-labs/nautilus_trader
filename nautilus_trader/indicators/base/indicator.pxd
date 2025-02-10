@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,9 +13,9 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
 
 
 cdef class Indicator:
@@ -30,11 +30,11 @@ cdef class Indicator:
 
     cdef str _params_str(self)
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *
-    cpdef void handle_trade_tick(self, TradeTick tick) except *
-    cpdef void handle_bar(self, Bar bar) except *
-    cpdef void reset(self) except *
+    cpdef void handle_quote_tick(self, QuoteTick tick)
+    cpdef void handle_trade_tick(self, TradeTick tick)
+    cpdef void handle_bar(self, Bar bar)
+    cpdef void reset(self)
 
-    cpdef void _set_has_inputs(self, bint setting) except *
-    cpdef void _set_initialized(self, bint setting) except *
-    cpdef void _reset(self) except *
+    cpdef void _set_has_inputs(self, bint setting)
+    cpdef void _set_initialized(self, bint setting)
+    cpdef void _reset(self)

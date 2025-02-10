@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,92 +13,159 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Dict, FrozenSet, Optional
+from __future__ import annotations
 
-import pydantic
-from pydantic import PositiveFloat
-from pydantic import PositiveInt
+import msgspec
 
-from nautilus_trader.cache.config import CacheConfig
+from nautilus_trader.common import Environment
+from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import InstrumentProviderConfig
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.common.config import NonNegativeInt
+from nautilus_trader.common.config import PositiveFloat
+from nautilus_trader.common.config import PositiveInt
+from nautilus_trader.common.config import resolve_config_path
+from nautilus_trader.common.config import resolve_path
+from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.data.config import DataEngineConfig
 from nautilus_trader.execution.config import ExecEngineConfig
-from nautilus_trader.infrastructure.config import CacheDatabaseConfig
-from nautilus_trader.persistence.config import PersistenceConfig
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.system.config import NautilusKernelConfig
+from nautilus_trader.trading.config import ImportableControllerConfig
 
 
-class LiveDataEngineConfig(DataEngineConfig):
+class LiveDataEngineConfig(DataEngineConfig, frozen=True):
     """
     Configuration for ``LiveDataEngine`` instances.
-    """
-
-    qsize: PositiveInt = 10000
-
-
-class LiveRiskEngineConfig(RiskEngineConfig):
-    """
-    Configuration for ``LiveRiskEngine`` instances.
-    """
-
-    qsize: PositiveInt = 10000
-
-
-class LiveExecEngineConfig(ExecEngineConfig):
-    """
-    Configuration for ``LiveExecEngine`` instances.
 
     Parameters
     ----------
-    recon_auto : bool
-        If reconciliation should automatically generate events to align state.
-    recon_lookback_mins : int, optional
-        The maximum lookback minutes to reconcile state for. If None then will
-        use the maximum lookback available from the venues.
-    qsize : PositiveInt
+    qsize : PositiveInt, default 100_000
         The queue size for the engines internal queue buffers.
+
     """
 
-    recon_auto: bool = True
-    recon_lookback_mins: Optional[PositiveInt] = None
-    qsize: PositiveInt = 10000
+    qsize: PositiveInt = 100_000
 
 
-class RoutingConfig(pydantic.BaseModel):
+class LiveRiskEngineConfig(RiskEngineConfig, frozen=True):
+    """
+    Configuration for ``LiveRiskEngine`` instances.
+
+    Parameters
+    ----------
+    qsize : PositiveInt, default 100_000
+        The queue size for the engines internal queue buffers.
+
+    """
+
+    qsize: PositiveInt = 100_000
+
+
+class LiveExecEngineConfig(ExecEngineConfig, frozen=True):
+    """
+    Configuration for ``LiveExecEngine`` instances.
+
+    The purpose of the in-flight order check is for live reconciliation, events
+    emitted from the venue may have been lost at some point - leaving an order
+    in an intermediate state, the check can recover these events via status reports.
+
+    Parameters
+    ----------
+    reconciliation : bool, default True
+        If reconciliation is active at start-up.
+    reconciliation_lookback_mins : NonNegativeInt, optional
+        The maximum lookback minutes to reconcile state for.
+        If ``None`` or 0 then will use the maximum lookback available from the venues.
+    filter_unclaimed_external_orders : bool, default False
+        If unclaimed order events with an EXTERNAL strategy ID should be filtered/dropped.
+    filter_position_reports : bool, default False
+        If position status reports are filtered from reconciliation.
+        This may be applicable when other nodes are trading the same instrument(s), on the same
+        account - which could cause conflicts in position status.
+    generate_missing_orders : bool, default True
+        If MARKET order events will be generated during reconciliation to align discrepancies
+        between internal and external positions.
+    inflight_check_interval_ms : NonNegativeInt, default 2_000
+        The interval (milliseconds) between checking whether in-flight orders
+        have exceeded their time-in-flight threshold.
+        This should not be set less than the `inflight_check_interval_ms`.
+    inflight_check_threshold_ms : NonNegativeInt, default 5_000
+        The threshold (milliseconds) beyond which an in-flight orders status
+        is checked with the venue.
+        As a rule of thumb, you shouldn't consider reducing this setting unless you
+        are colocated with the venue (to avoid the potential for race conditions).
+    inflight_check_retries : NonNegativeInt, default 5
+        The number of retry attempts the engine will make to verify the status of an
+        in-flight order with the venue, should the initial attempt fail.
+    open_check_interval_secs : PositiveFloat, optional
+        The interval (seconds) between checks for open orders at the venue.
+        If there is a discrepancy then an order status report is generated and reconciled.
+        A recommended setting is between 5-10 seconds, consider API rate limits and the additional
+        request weights.
+        If no value is specified then the open order checking task is not started.
+    open_check_open_only : bool, default True
+        If True, the **check_open_orders** requests only currently open orders from the venue.
+        If False, it requests the entire order history, which can be a heavy API call.
+        This parameter only applies if the **check_open_orders** task is running.
+    qsize : PositiveInt, default 100_000
+        The queue size for the engines internal queue buffers.
+
+    """
+
+    reconciliation: bool = True
+    reconciliation_lookback_mins: NonNegativeInt | None = None
+    filter_unclaimed_external_orders: bool = False
+    filter_position_reports: bool = False
+    generate_missing_orders: bool = True
+    inflight_check_interval_ms: NonNegativeInt = 2_000
+    inflight_check_threshold_ms: NonNegativeInt = 5_000
+    inflight_check_retries: NonNegativeInt = 5
+    open_check_interval_secs: PositiveFloat | None = None
+    open_check_open_only: bool = True
+    qsize: PositiveInt = 100_000
+
+
+class RoutingConfig(NautilusConfig, frozen=True):
     """
     Configuration for live client message routing.
 
+    Parameters
+    ----------
     default : bool
         If the client should be registered as the default routing client
         (when a specific venue routing cannot be found).
-    venues : List[str], optional
+    venues : list[str], optional
         The venues to register for routing.
+
     """
 
     default: bool = False
-    venues: Optional[FrozenSet[str]] = None
-
-    def __hash__(self):  # make hashable BaseModel subclass
-        return hash((type(self),) + tuple(self.__dict__.values()))
+    venues: frozenset[str] | None = None
 
 
-class LiveDataClientConfig(pydantic.BaseModel):
+class LiveDataClientConfig(NautilusConfig, frozen=True):
     """
     Configuration for ``LiveDataClient`` instances.
 
     Parameters
     ----------
+    handle_revised_bars : bool
+        If DataClient will emit bar updates when a new bar opens.
     instrument_provider : InstrumentProviderConfig
         The clients instrument provider configuration.
     routing : RoutingConfig
         The clients message routing config.
+
     """
 
+    handle_revised_bars: bool = False
     instrument_provider: InstrumentProviderConfig = InstrumentProviderConfig()
     routing: RoutingConfig = RoutingConfig()
 
 
-class LiveExecClientConfig(pydantic.BaseModel):
+class LiveExecClientConfig(NautilusConfig, frozen=True):
     """
     Configuration for ``LiveExecutionClient`` instances.
 
@@ -108,71 +175,65 @@ class LiveExecClientConfig(pydantic.BaseModel):
         The clients instrument provider configuration.
     routing : RoutingConfig
         The clients message routing config.
+
     """
 
     instrument_provider: InstrumentProviderConfig = InstrumentProviderConfig()
     routing: RoutingConfig = RoutingConfig()
 
 
-class TradingNodeConfig(pydantic.BaseModel):
+class ControllerConfig(ActorConfig, kw_only=True, frozen=True):
+    """
+    The base model for all controller configurations.
+    """
+
+
+class ControllerFactory:
+    """
+    Provides controller creation from importable configurations.
+    """
+
+    @staticmethod
+    def create(
+        config: ImportableControllerConfig,
+        trader,
+    ):
+        from nautilus_trader.trading.trader import Trader
+
+        PyCondition.type(trader, Trader, "trader")
+        controller_cls = resolve_path(config.controller_path)
+        config_cls = resolve_config_path(config.config_path)
+        config = config_cls.parse(msgspec.json.encode(config.config))
+        return controller_cls(config=config, trader=trader)
+
+
+class TradingNodeConfig(NautilusKernelConfig, frozen=True):
     """
     Configuration for ``TradingNode`` instances.
 
     Parameters
     ----------
-    trader_id : str, default "TRADER-000"
-        The trader ID for the node (must be a name and ID tag separated by a hyphen)
-    log_level : str, default "INFO"
-        The stdout log level for the node.
+    trader_id : TraderId, default "TRADER-000"
+        The trader ID for the node (must be a name and ID tag separated by a hyphen).
     cache : CacheConfig, optional
         The cache configuration.
-    cache_database : CacheDatabaseConfig, optional
-        The cache database configuration.
     data_engine : LiveDataEngineConfig, optional
         The live data engine configuration.
     risk_engine : LiveRiskEngineConfig, optional
         The live risk engine configuration.
     exec_engine : LiveExecEngineConfig, optional
         The live execution engine configuration.
-    loop_debug : bool, default False
-        If the asyncio event loop should be in debug mode.
-    load_strategy_state : bool, default True
-        If trading strategy state should be loaded from the database on start.
-    save_strategy_state : bool, default True
-        If trading strategy state should be saved to the database on stop.
-    timeout_connection : PositiveFloat (seconds)
-        The timeout for all clients to connect and initialize.
-    timeout_reconciliation : PositiveFloat (seconds)
-        The timeout for execution state to reconcile.
-    timeout_portfolio : PositiveFloat (seconds)
-        The timeout for portfolio to initialize margins and unrealized PnLs.
-    timeout_disconnection : PositiveFloat (seconds)
-        The timeout for all engine clients to disconnect.
-    check_residuals_delay : PositiveFloat (seconds)
-        The delay after stopping the node to check residual state before final shutdown.
-    data_clients : dict[str, LiveDataClientConfig], optional
+    data_clients : dict[str, ImportableConfig | LiveDataClientConfig], optional
         The data client configurations.
-    exec_clients : dict[str, LiveExecClientConfig], optional
+    exec_clients : dict[str, ImportableConfig | LiveExecClientConfig], optional
         The execution client configurations.
-    persistence : LivePersistenceConfig, optional
-        The config for enabling persistence via feather files
+
     """
 
-    trader_id: str = "TRADER-000"
-    log_level: str = "INFO"
-    cache: Optional[CacheConfig] = None
-    cache_database: Optional[CacheDatabaseConfig] = None
-    data_engine: Optional[LiveDataEngineConfig] = None
-    risk_engine: Optional[LiveRiskEngineConfig] = None
-    exec_engine: Optional[LiveExecEngineConfig] = None
-    loop_debug: bool = False
-    load_strategy_state: bool = True
-    save_strategy_state: bool = True
-    timeout_connection: PositiveFloat = 10.0
-    timeout_reconciliation: PositiveFloat = 10.0
-    timeout_portfolio: PositiveFloat = 10.0
-    timeout_disconnection: PositiveFloat = 10.0
-    check_residuals_delay: PositiveFloat = 10.0
-    data_clients: Dict[str, LiveDataClientConfig] = {}
-    exec_clients: Dict[str, LiveExecClientConfig] = {}
-    persistence: Optional[PersistenceConfig] = None
+    environment: Environment = Environment.LIVE
+    trader_id: TraderId = TraderId("TRADER-001")
+    data_engine: LiveDataEngineConfig = LiveDataEngineConfig()
+    risk_engine: LiveRiskEngineConfig = LiveRiskEngineConfig()
+    exec_engine: LiveExecEngineConfig = LiveExecEngineConfig()
+    data_clients: dict[str, LiveDataClientConfig] = {}
+    exec_clients: dict[str, LiveExecClientConfig] = {}

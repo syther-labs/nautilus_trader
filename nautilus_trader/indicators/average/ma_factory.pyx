@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,11 +15,14 @@
 
 from nautilus_trader.core.correctness cimport Condition
 
+from nautilus_trader.indicators.average.dema import DoubleExponentialMovingAverage
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.average.hma import HullMovingAverage
 from nautilus_trader.indicators.average.moving_average import MovingAverage
 from nautilus_trader.indicators.average.moving_average import MovingAverageType
+from nautilus_trader.indicators.average.rma import WilderMovingAverage
 from nautilus_trader.indicators.average.sma import SimpleMovingAverage
+from nautilus_trader.indicators.average.vidya import VariableIndexDynamicAverage
 from nautilus_trader.indicators.average.wma import WeightedMovingAverage
 
 
@@ -67,3 +70,12 @@ cdef class MovingAverageFactory:
 
         elif ma_type == MovingAverageType.HULL:
             return HullMovingAverage(period)
+
+        elif ma_type == MovingAverageType.WILDER:
+            return WilderMovingAverage(period)
+
+        elif ma_type == MovingAverageType.DOUBLE_EXPONENTIAL:
+            return DoubleExponentialMovingAverage(period)
+
+        elif ma_type == MovingAverageType.VARIABLE_INDEX_DYNAMIC:
+            return VariableIndexDynamicAverage(period, **kwargs)
