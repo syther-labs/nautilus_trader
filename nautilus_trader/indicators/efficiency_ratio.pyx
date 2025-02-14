@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,7 +17,7 @@ from collections import deque
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class EfficiencyRatio(Indicator):
@@ -38,7 +38,7 @@ cdef class EfficiencyRatio(Indicator):
     """
 
     def __init__(self, int period):
-        Condition.true(period >= 2, "period was < 2")
+        Condition.is_true(period >= 2, "period was < 2")
         super().__init__(params=[period])
 
         self.period = period
@@ -46,7 +46,7 @@ cdef class EfficiencyRatio(Indicator):
         self._deltas = deque(maxlen=period)
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -60,7 +60,7 @@ cdef class EfficiencyRatio(Indicator):
 
         self.update_raw(bar.close.as_double())
 
-    cpdef void update_raw(self, double price) except *:
+    cpdef void update_raw(self, double price):
         """
         Update the indicator with the given price.
 
@@ -92,7 +92,7 @@ cdef class EfficiencyRatio(Indicator):
         else:
             self.value = 0
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._inputs.clear()
         self._deltas.clear()
         self.value = 0

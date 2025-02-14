@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -19,10 +19,10 @@ from itertools import permutations
 import pandas as pd
 
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.c_enums.price_type cimport PriceTypeParser
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.rust.model cimport PriceType
+from nautilus_trader.model.functions cimport price_type_to_str
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.objects cimport Currency
 
 
 cdef class ExchangeRateCalculator:
@@ -32,7 +32,7 @@ cdef class ExchangeRateCalculator:
     An exchange rate is the value of one asset versus that of another.
     """
 
-    cpdef object get_rate(
+    cpdef double get_rate(
         self,
         Currency from_currency,
         Currency to_currency,
@@ -53,9 +53,9 @@ cdef class ExchangeRateCalculator:
         price_type : PriceType
             The price type for conversion.
         bid_quotes : dict
-            The dictionary of currency pair bid quotes dict[Symbol, Decimal].
+            The dictionary of currency pair bid quotes dict[Symbol, double].
         ask_quotes : dict
-            The dictionary of currency pair ask quotes dict[Symbol, Decimal].
+            The dictionary of currency pair ask quotes dict[Symbol, double].
 
         Returns
         -------
@@ -77,10 +77,10 @@ cdef class ExchangeRateCalculator:
         Condition.not_none(to_currency, "to_currency")
         Condition.not_none(bid_quotes, "bid_quotes")
         Condition.not_none(ask_quotes, "ask_quotes")
-        Condition.true(price_type != PriceType.LAST, "price_type was invalid (LAST)")
+        Condition.is_true(price_type != PriceType.LAST, "price_type was invalid (LAST)")
 
         if from_currency == to_currency:
-            return Decimal(1)  # No conversion necessary
+            return 1.0  # No conversion necessary
 
         if price_type == PriceType.BID:
             calculation_quotes = bid_quotes
@@ -88,11 +88,11 @@ cdef class ExchangeRateCalculator:
             calculation_quotes = ask_quotes
         elif price_type == PriceType.MID:
             calculation_quotes = {
-                s: (bid_quotes[s] + ask_quotes[s]) / Decimal(2) for s in bid_quotes
+                s: (bid_quotes[s] + ask_quotes[s]) / 2.0 for s in bid_quotes
             }  # type: dict[str, Decimal]
         else:
             raise ValueError(f"Cannot calculate exchange rate for PriceType."
-                             f"{PriceTypeParser.to_str(price_type)}")
+                             f"{price_type_to_str(price_type)}")
 
         cdef str symbol
         cdef tuple pieces
@@ -103,8 +103,6 @@ cdef class ExchangeRateCalculator:
 
         # Build quote table
         for symbol, quote in calculation_quotes.items():
-            assert isinstance(quote, Decimal), f"quote must be type Decimal, was {type(quote)}"
-
             # Get instrument_id codes
             pieces = symbol.partition('/')
             code_lhs = pieces[0]
@@ -118,8 +116,8 @@ cdef class ExchangeRateCalculator:
             if code_rhs not in exchange_rates:
                 exchange_rates[code_rhs] = {}
             # Add currency rates
-            exchange_rates[code_lhs][code_lhs] = Decimal(1)
-            exchange_rates[code_rhs][code_rhs] = Decimal(1)
+            exchange_rates[code_lhs][code_lhs] = 1.0
+            exchange_rates[code_rhs][code_rhs] = 1.0
             exchange_rates[code_lhs][code_rhs] = quote
 
         # Generate possible currency pairs from all symbols
@@ -136,11 +134,11 @@ cdef class ExchangeRateCalculator:
             if perm[0] not in exchange_rates_perm1:
                 # Search for inverse
                 if perm[1] in exchange_rates_perm0:
-                    exchange_rates_perm1[perm[0]] = Decimal(1) / exchange_rates_perm0[perm[1]]
+                    exchange_rates_perm1[perm[0]] = 1.0 / float(exchange_rates_perm0[perm[1]])
             if perm[1] not in exchange_rates_perm0:
                 # Search for inverse
                 if perm[0] in exchange_rates_perm1:
-                    exchange_rates_perm0[perm[1]] = Decimal(1) / exchange_rates_perm1[perm[0]]
+                    exchange_rates_perm0[perm[1]] = 1.0 / float(exchange_rates_perm1[perm[0]])
 
         cdef dict quotes = exchange_rates.get(from_currency.code)
         if quotes:
@@ -179,9 +177,9 @@ cdef class ExchangeRateCalculator:
         quotes = exchange_rates.get(from_currency.code)
         if quotes is None:
             # Not enough data
-            return Decimal(0)
+            return 0.0
 
-        return quotes.get(to_currency.code, Decimal(0))
+        return quotes.get(to_currency.code, 0.0)
 
 
 cdef class RolloverInterestCalculator:
@@ -255,8 +253,9 @@ cdef class RolloverInterestCalculator:
         Condition.not_none(date, "timestamp")
         Condition.in_range_int(len(instrument_id.symbol.value), 6, 7, "len(instrument_id)")
 
-        cdef str base_currency = instrument_id.symbol.value[:3]
-        cdef str quote_currency = instrument_id.symbol.value[-3:]
+        cdef str symbol = instrument_id.symbol.value
+        cdef str base_currency = symbol[:3]
+        cdef str quote_currency = symbol[-3:]
         cdef str time_monthly = f"{date.year}-{str(date.month).zfill(2)}"
         cdef str time_quarter = f"{date.year}-Q{str(int(((date.month - 1) // 3) + 1)).zfill(2)}"
 
@@ -268,7 +267,7 @@ cdef class RolloverInterestCalculator:
         if quote_data.empty:
             quote_data = self._rate_data[quote_currency].loc[self._rate_data[quote_currency]['TIME'] == time_quarter]
 
-        if base_data.empty and quote_data.empty:  # pragma: no cover
-            raise RuntimeError(f"cannot find rollover interest rate for {instrument_id} on {date}")
+        if base_data.empty and quote_data.empty:
+            raise RuntimeError(f"cannot find rollover interest rate for {instrument_id} on {date}")  # pragma: no cover
 
         return Decimal(((<double>base_data['Value'] - <double>quote_data['Value']) / 365) / 100)

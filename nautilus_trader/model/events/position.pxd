@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,13 +13,12 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.core.message cimport Event
+from nautilus_trader.core.rust.model cimport OrderSide
+from nautilus_trader.core.rust.model cimport PositionSide
 from nautilus_trader.core.uuid cimport UUID4
-from nautilus_trader.model.c_enums.order_side cimport OrderSide
-from nautilus_trader.model.c_enums.position_side cimport PositionSide
-from nautilus_trader.model.currency cimport Currency
 from nautilus_trader.model.events.order cimport OrderFilled
 from nautilus_trader.model.identifiers cimport AccountId
 from nautilus_trader.model.identifiers cimport ClientOrderId
@@ -27,6 +26,7 @@ from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport PositionId
 from nautilus_trader.model.identifiers cimport StrategyId
 from nautilus_trader.model.identifiers cimport TraderId
+from nautilus_trader.model.objects cimport Currency
 from nautilus_trader.model.objects cimport Money
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
@@ -34,6 +34,10 @@ from nautilus_trader.model.position cimport Position
 
 
 cdef class PositionEvent(Event):
+    cdef UUID4 _event_id
+    cdef uint64_t _ts_event
+    cdef uint64_t _ts_init
+
     cdef readonly TraderId trader_id
     """The trader ID associated with the event.\n\n:returns: `TraderId`"""
     cdef readonly StrategyId strategy_id
@@ -44,14 +48,16 @@ cdef class PositionEvent(Event):
     """The position ID associated with the event.\n\n:returns: `PositionId`"""
     cdef readonly AccountId account_id
     """The account ID associated with the position.\n\n:returns: `AccountId`"""
-    cdef readonly ClientOrderId from_order
-    """The client order ID for the order which first opened the position.\n\n:returns: `ClientOrderId`"""
+    cdef readonly ClientOrderId opening_order_id
+    """The client order ID for the order which opened the position.\n\n:returns: `ClientOrderId`"""
+    cdef readonly ClientOrderId closing_order_id
+    """The client order ID for the order which closed the position.\n\n:returns: `ClientOrderId` or ``None``"""
     cdef readonly OrderSide entry
     """The entry direction from open.\n\n:returns: `OrderSide`"""
     cdef readonly PositionSide side
     """The position side.\n\n:returns: `PositionSide`"""
-    cdef readonly object net_qty
-    """The net quantity (positive for ``LONG``, negative for ``SHORT``).\n\n:returns: `Decimal`"""
+    cdef readonly double signed_qty
+    """The position signed quantity (positive for ``LONG``, negative for ``SHORT``).\n\n:returns: `double`"""
     cdef readonly Quantity quantity
     """The position open quantity.\n\n:returns: `Quantity`"""
     cdef readonly Quantity peak_qty
@@ -62,24 +68,22 @@ cdef class PositionEvent(Event):
     """The last fill price for the position.\n\n:returns: `Price`"""
     cdef readonly Currency currency
     """The position quote currency.\n\n:returns: `Currency`"""
-    cdef readonly object avg_px_open
-    """The average open price.\n\n:returns: `Decimal`"""
-    cdef readonly object avg_px_close
-    """The average closing price.\n\n:returns: `Decimal`"""
-    cdef readonly object realized_points
-    """The realized points for the position.\n\n:returns: `Decimal`"""
-    cdef readonly object realized_return
-    """The realized return for the position.\n\n:returns: `Decimal`"""
+    cdef readonly double avg_px_open
+    """The average open price.\n\n:returns: `double`"""
+    cdef readonly double avg_px_close
+    """The average closing price.\n\n:returns: `double`"""
+    cdef readonly double realized_return
+    """The realized return for the position.\n\n:returns: `double`"""
     cdef readonly Money realized_pnl
     """The realized PnL for the position (including commissions).\n\n:returns: `Money`"""
     cdef readonly Money unrealized_pnl
     """The unrealized PnL for the position (including commissions).\n\n:returns: `Money`"""
-    cdef readonly int64_t ts_opened
-    """The UNIX timestamp (nanoseconds) when the position was opened.\n\n:returns: `int64`"""
-    cdef readonly int64_t ts_closed
-    """The UNIX timestamp (nanoseconds) when the position was closed.\n\n:returns: `int64`"""
-    cdef readonly int64_t duration_ns
-    """The total open duration (nanoseconds).\n\n:returns: `int64`"""
+    cdef readonly uint64_t ts_opened
+    """UNIX timestamp (nanoseconds) when the position was opened.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t ts_closed
+    """UNIX timestamp (nanoseconds) when the position was closed.\n\n:returns: `uint64_t`"""
+    cdef readonly uint64_t duration_ns
+    """The total open duration (nanoseconds).\n\n:returns: `uint64_t`"""
 
 
 cdef class PositionOpened(PositionEvent):
@@ -89,7 +93,7 @@ cdef class PositionOpened(PositionEvent):
         Position position,
         OrderFilled fill,
         UUID4 event_id,
-        int64_t ts_init,
+        uint64_t ts_init,
     )
 
     @staticmethod
@@ -106,7 +110,7 @@ cdef class PositionChanged(PositionEvent):
         Position position,
         OrderFilled fill,
         UUID4 event_id,
-        int64_t ts_init,
+        uint64_t ts_init,
     )
 
     @staticmethod
@@ -123,7 +127,7 @@ cdef class PositionClosed(PositionEvent):
         Position position,
         OrderFilled fill,
         UUID4 event_id,
-        int64_t ts_init,
+        uint64_t ts_init,
     )
 
     @staticmethod

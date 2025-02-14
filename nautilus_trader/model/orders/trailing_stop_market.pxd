@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,11 +13,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from cpython.datetime cimport datetime
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
-from nautilus_trader.model.c_enums.trailing_offset_type cimport TrailingOffsetType
-from nautilus_trader.model.c_enums.trigger_type cimport TriggerType
+from nautilus_trader.core.rust.model cimport TrailingOffsetType
+from nautilus_trader.core.rust.model cimport TriggerType
 from nautilus_trader.model.events.order cimport OrderInitialized
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.orders.base cimport Order
@@ -30,13 +29,10 @@ cdef class TrailingStopMarketOrder(Order):
     """The trigger type for the order.\n\n:returns: `TriggerType`"""
     cdef readonly object trailing_offset
     """The trailing offset for the orders trigger price (STOP).\n\n:returns: `Decimal`"""
-    cdef readonly TrailingOffsetType offset_type
-    """The trailing offset type.\n\n:returns: `Decimal`"""
-    cdef readonly datetime expire_time
-    """The order expiration.\n\n:returns: `datetime` or ``None``"""
-    cdef readonly int64_t expire_time_ns
-    """The order expiration (UNIX epoch nanoseconds), zero for no expiration.\n\n:returns: `int64`"""
-
+    cdef readonly TrailingOffsetType trailing_offset_type
+    """The trailing offset type.\n\n:returns: `TrailingOffsetType`"""
+    cdef readonly uint64_t expire_time_ns
+    """The order expiration (UNIX epoch nanoseconds), zero for no expiration.\n\n:returns: `uint64_t`"""
 
     @staticmethod
-    cdef TrailingStopMarketOrder create(OrderInitialized init)
+    cdef TrailingStopMarketOrder create_c(OrderInitialized init)

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -20,24 +20,20 @@ from cpython.datetime cimport datetime
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class Swings(Indicator):
     """
     A swing indicator which calculates and stores various swing metrics.
+
+    Parameters
+    ----------
+    period : int
+        The rolling window period for the indicator (> 0).
     """
 
     def __init__(self, int period):
-        """
-        Initialize a new instance of the Swings class.
-
-        Parameters
-        ----------
-        period : int
-            The rolling window period for the indicator (> 0).
-
-        """
         Condition.positive_int(period, "period")
         super().__init__(params=[period])
 
@@ -56,7 +52,7 @@ cdef class Swings(Indicator):
         self.since_high = 0
         self.since_low = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -79,7 +75,7 @@ cdef class Swings(Indicator):
         double high,
         double low,
         datetime timestamp,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw values.
 
@@ -141,7 +137,7 @@ cdef class Swings(Indicator):
             else:
                 self.duration = self.since_high
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._high_inputs.clear()
         self._low_inputs.clear()
 

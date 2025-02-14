@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,6 +13,14 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from libc.stdint cimport uint64_t
+
+from nautilus_trader.model.instruments.base cimport Instrument
+from nautilus_trader.model.objects cimport Money
+from nautilus_trader.model.objects cimport Price
+from nautilus_trader.model.objects cimport Quantity
+from nautilus_trader.model.orders.base cimport Order
+
 
 cdef class FillModel:
     cdef readonly double prob_fill_on_limit
@@ -22,19 +30,37 @@ cdef class FillModel:
     cdef readonly double prob_slippage
     """The probability of aggressive order execution slipping.\n\n:returns: `bool`"""
 
-    cpdef bint is_limit_filled(self) except *
-    cpdef bint is_stop_filled(self) except *
-    cpdef bint is_slipped(self) except *
+    cpdef bint is_limit_filled(self)
+    cpdef bint is_stop_filled(self)
+    cpdef bint is_slipped(self)
 
-    cdef bint _event_success(self, double probability) except *
+    cdef bint _event_success(self, double probability)
 
 
 cdef class LatencyModel:
-    cdef readonly int base_latency_nanos
+    cdef readonly uint64_t base_latency_nanos
     """The default latency to the exchange.\n\n:returns: `int`"""
-    cdef readonly int insert_latency_nanos
+    cdef readonly uint64_t insert_latency_nanos
     """The latency (nanoseconds) for order insert messages to reach the exchange.\n\n:returns: `int`"""
-    cdef readonly int update_latency_nanos
+    cdef readonly uint64_t update_latency_nanos
     """The latency (nanoseconds) for order update messages to reach the exchange.\n\n:returns: `int`"""
-    cdef readonly int cancel_latency_nanos
+    cdef readonly uint64_t cancel_latency_nanos
     """The latency (nanoseconds) for order cancel messages to reach the exchange.\n\n:returns: `int`"""
+
+
+cdef class FeeModel:
+    cpdef Money get_commission(self, Order order, Quantity fill_qty, Price fill_px, Instrument instrument)
+
+
+cdef class MakerTakerFeeModel(FeeModel):
+    pass
+
+
+cdef class FixedFeeModel(FeeModel):
+    cdef Money _commission
+    cdef Money _zero_commission
+    cdef bint _charge_commission_once
+
+
+cdef class PerContractFeeModel(FeeModel):
+    cdef Money _commission

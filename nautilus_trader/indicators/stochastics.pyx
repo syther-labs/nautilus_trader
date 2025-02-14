@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,7 +17,7 @@ from collections import deque
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class Stochastics(Indicator):
@@ -25,30 +25,26 @@ cdef class Stochastics(Indicator):
     An oscillator which can indicate when an asset may be over bought or over
     sold.
 
+    Parameters
+    ----------
+    period_k : int
+        The period for the K line.
+    period_d : int
+        The period for the D line.
+
+    Raises
+    ------
+    ValueError
+        If `period_k` is not positive (> 0).
+    ValueError
+        If `period_d` is not positive (> 0).
+
     References
     ----------
     https://www.forextraders.com/forex-education/forex-indicators/stochastics-indicator-explained/
     """
 
     def __init__(self, int period_k, int period_d):
-        """
-        Initialize a new instance of the ``Stochastics`` class.
-
-        Parameters
-        ----------
-        period_k : int
-            The period for the K line.
-        period_d : int
-            The period for the D line.
-
-        Raises
-        ------
-        ValueError
-            If `period_k` is not positive (> 0).
-        ValueError
-            If `period_d` is not positive (> 0).
-
-        """
         Condition.positive_int(period_k, "period_k")
         Condition.positive_int(period_d, "period_d")
         super().__init__(params=[period_k, period_d])
@@ -63,7 +59,7 @@ cdef class Stochastics(Indicator):
         self.value_k = 0
         self.value_d = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -86,7 +82,7 @@ cdef class Stochastics(Indicator):
         double high,
         double low,
         double close,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw values.
 
@@ -124,7 +120,7 @@ cdef class Stochastics(Indicator):
         self.value_k = 100 * ((close - k_min_low) / (k_max_high - k_min_low))
         self.value_d = 100 * (sum(self._c_sub_l) / sum(self._h_sub_l))
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._highs.clear()
         self._lows.clear()
         self._c_sub_l.clear()

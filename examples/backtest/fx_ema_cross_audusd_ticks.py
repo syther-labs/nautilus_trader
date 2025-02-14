@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,45 +14,40 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import time
 from decimal import Decimal
 
 import pandas as pd
 
-from nautilus_trader.backtest.data.providers import TestDataProvider
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
-from nautilus_trader.backtest.data.wranglers import QuoteTickDataWrangler
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.backtest.models import FillModel
+from nautilus_trader.backtest.modules import FXRolloverInterestConfig
 from nautilus_trader.backtest.modules import FXRolloverInterestModule
 from nautilus_trader.examples.strategies.ema_cross import EMACross
 from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
 from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OMSType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+from nautilus_trader.test_kit.providers import TestDataProvider
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 
 if __name__ == "__main__":
     # Configure backtest engine
     config = BacktestEngineConfig(
-        trader_id="BACKTESTER-001",
+        trader_id=TraderId("BACKTESTER-001"),
     )
+
     # Build the backtest engine
     engine = BacktestEngine(config=config)
 
-    # Setup trading instruments
-    SIM = Venue("SIM")
-    AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD", SIM)
-
-    # Setup data
-    provider = TestDataProvider()
-    wrangler = QuoteTickDataWrangler(instrument=AUDUSD_SIM)
-    ticks = wrangler.process(provider.read_csv_ticks("truefx-audusd-ticks.csv"))
-    engine.add_instrument(AUDUSD_SIM)
-    engine.add_ticks(ticks)
-
+    # Firstly, add a trading venue (multiple venues possible)
     # Create a fill model (optional)
     fill_model = FillModel(
         prob_fill_on_limit=0.2,
@@ -63,35 +58,47 @@ if __name__ == "__main__":
 
     # Optional plug in module to simulate rollover interest,
     # the data is coming from packaged test data.
+    provider = TestDataProvider()
     interest_rate_data = provider.read_csv("short-term-interest.csv")
-    fx_rollover_interest = FXRolloverInterestModule(rate_data=interest_rate_data)
+    config = FXRolloverInterestConfig(interest_rate_data)
+    fx_rollover_interest = FXRolloverInterestModule(config=config)
 
-    # Add an exchange (multiple exchanges possible)
-    # Add starting balances for single-currency or multi-currency accounts
+    # Add a trading venue (multiple venues possible)
+    SIM = Venue("SIM")
     engine.add_venue(
         venue=SIM,
-        oms_type=OMSType.HEDGING,  # Venue will generate position IDs
+        oms_type=OmsType.HEDGING,  # Venue will generate position IDs
         account_type=AccountType.MARGIN,
         base_currency=USD,  # Standard single-currency account
-        starting_balances=[Money(1_000_000, USD)],
+        starting_balances=[Money(1_000_000, USD)],  # single-currency or multi-currency accounts
         fill_model=fill_model,
         modules=[fx_rollover_interest],
     )
 
+    # Add instruments
+    AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD", SIM)
+    engine.add_instrument(AUDUSD_SIM)
+
+    # Add data
+    wrangler = QuoteTickDataWrangler(instrument=AUDUSD_SIM)
+    ticks = wrangler.process(provider.read_csv_ticks("truefx/audusd-ticks.csv"))
+    engine.add_data(ticks)
+
     # Configure your strategy
     config = EMACrossConfig(
-        instrument_id=str(AUDUSD_SIM.id),
-        bar_type="AUD/USD.SIM-100-TICK-MID-INTERNAL",
+        instrument_id=AUDUSD_SIM.id,
+        bar_type=BarType.from_str("AUD/USD.SIM-100-TICK-MID-INTERNAL"),
+        trade_size=Decimal(1_000_000),
         fast_ema_period=10,
         slow_ema_period=20,
-        trade_size=Decimal(1_000_000),
-        order_id_tag="001",
+        close_positions_on_stop=True,
     )
     # Instantiate and add your strategy
     strategy = EMACross(config=config)
     engine.add_strategy(strategy=strategy)
 
-    input("Press Enter to continue...")  # noqa (always Python 3)
+    time.sleep(0.1)
+    input("Press Enter to continue...")
 
     # Run the engine (from start to end of data)
     engine.run()

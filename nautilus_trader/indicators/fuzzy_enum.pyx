@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,11 +13,17 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-# isort:skip_file
-
 """Provides the C Enums as Python Enums for external use."""
 
-from nautilus_trader.indicators.fuzzy_enums.candle_body import CandleBodySize        # noqa F401 (being used)
-from nautilus_trader.indicators.fuzzy_enums.candle_direction import CandleDirection  # noqa F401 (being used)
-from nautilus_trader.indicators.fuzzy_enums.candle_size import CandleSize            # noqa F401 (being used)
-from nautilus_trader.indicators.fuzzy_enums.candle_wick import CandleWickSize        # noqa F401 (being used)
+from nautilus_trader.indicators.fuzzy_enums.candle_body import CandleBodySize
+from nautilus_trader.indicators.fuzzy_enums.candle_direction import CandleDirection
+from nautilus_trader.indicators.fuzzy_enums.candle_size import CandleSize
+from nautilus_trader.indicators.fuzzy_enums.candle_wick import CandleWickSize
+
+
+__all__ = [
+    "CandleBodySize",
+    "CandleDirection",
+    "CandleSize",
+    "CandleWickSize",
+]

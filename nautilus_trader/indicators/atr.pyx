@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,7 +18,7 @@ from nautilus_trader.indicators.average.ma_factory import MovingAverageType
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class AverageTrueRange(Indicator):
@@ -64,7 +64,7 @@ cdef class AverageTrueRange(Indicator):
         self._previous_close = 0
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -109,7 +109,7 @@ cdef class AverageTrueRange(Indicator):
         self._floor_value()
         self._check_initialized()
 
-    cdef void _floor_value(self) except *:
+    cdef void _floor_value(self):
         if self._value_floor == 0:
             self.value = self._ma.value
         elif self._value_floor < self._ma.value:
@@ -118,16 +118,13 @@ cdef class AverageTrueRange(Indicator):
             # Floor the value
             self.value = self._value_floor
 
-    cdef void _check_initialized(self) except *:
-        """
-        Initialization logic.
-        """
+    cdef void _check_initialized(self):
         if not self.initialized:
             self._set_has_inputs(True)
             if self._ma.initialized:
                 self._set_initialized(True)
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._ma.reset()
         self._previous_close = 0
         self.value = 0

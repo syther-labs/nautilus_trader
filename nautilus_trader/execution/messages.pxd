@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,8 +14,10 @@
 # -------------------------------------------------------------------------------------------------
 
 from nautilus_trader.core.message cimport Command
+from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.model.identifiers cimport ClientId
 from nautilus_trader.model.identifiers cimport ClientOrderId
+from nautilus_trader.model.identifiers cimport ExecAlgorithmId
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport PositionId
 from nautilus_trader.model.identifiers cimport StrategyId
@@ -36,13 +38,17 @@ cdef class TradingCommand(Command):
     """The strategy ID associated with the command.\n\n:returns: `StrategyId`"""
     cdef readonly InstrumentId instrument_id
     """The instrument ID associated with the command.\n\n:returns: `InstrumentId`"""
+    cdef readonly dict[str, object] params
+    """Additional specific parameters for the command.\n\n:returns: `dict[str, object]` or ``None``"""
 
 
 cdef class SubmitOrder(TradingCommand):
-    cdef readonly PositionId position_id
-    """The position ID associated with the command.\n\n:returns: `PositionId` or ``None``"""
     cdef readonly Order order
-    """The order for the command.\n\n:returns: `Order`"""
+    """The order to submit.\n\n:returns: `Order`"""
+    cdef readonly ExecAlgorithmId exec_algorithm_id
+    """The execution algorithm ID for the order.\n\n:returns: `ExecAlgorithmId` or ``None``"""
+    cdef readonly PositionId position_id
+    """The position ID to associate with the order.\n\n:returns: `PositionId` or ``None``"""
 
     @staticmethod
     cdef SubmitOrder from_dict_c(dict values)
@@ -52,8 +58,14 @@ cdef class SubmitOrder(TradingCommand):
 
 
 cdef class SubmitOrderList(TradingCommand):
-    cdef readonly OrderList list
-    """The order list for submission.\n\n:returns: `OrderList`"""
+    cdef readonly OrderList order_list
+    """The order list to submit.\n\n:returns: `OrderList`"""
+    cdef readonly ExecAlgorithmId exec_algorithm_id
+    """The execution algorithm ID for the order list.\n\n:returns: `ExecAlgorithmId` or ``None``"""
+    cdef readonly PositionId position_id
+    """The position ID to associate with the orders.\n\n:returns: `PositionId` or ``None``"""
+    cdef readonly bint has_emulated_order
+    """If the contained order_list holds at least one emulated order.\n\n:returns: `bool`"""
 
     @staticmethod
     cdef SubmitOrderList from_dict_c(dict values)
@@ -95,9 +107,34 @@ cdef class CancelOrder(TradingCommand):
 
 
 cdef class CancelAllOrders(TradingCommand):
+    cdef readonly OrderSide order_side
+    """The order side for the command.\n\n:returns: `OrderSide`"""
 
     @staticmethod
     cdef CancelAllOrders from_dict_c(dict values)
 
     @staticmethod
     cdef dict to_dict_c(CancelAllOrders obj)
+
+
+cdef class BatchCancelOrders(TradingCommand):
+    cdef readonly list cancels
+
+    @staticmethod
+    cdef BatchCancelOrders from_dict_c(dict values)
+
+    @staticmethod
+    cdef dict to_dict_c(BatchCancelOrders obj)
+
+
+cdef class QueryOrder(TradingCommand):
+    cdef readonly ClientOrderId client_order_id
+    """The client order ID for the order to query.\n\n:returns: `ClientOrderId`"""
+    cdef readonly VenueOrderId venue_order_id
+    """The venue order ID for the order to query.\n\n:returns: `VenueOrderId` or ``None``"""
+
+    @staticmethod
+    cdef QueryOrder from_dict_c(dict values)
+
+    @staticmethod
+    cdef dict to_dict_c(QueryOrder obj)

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -21,7 +21,7 @@ from libc.math cimport sqrt
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double fast_mean(np.ndarray values) except *:
+cpdef double fast_mean(np.ndarray values):
     """
     Return the average value for numpy.ndarray values.
 
@@ -40,7 +40,7 @@ cpdef double fast_mean(np.ndarray values) except *:
 
     """
     if values is None or values.ndim != 1:
-        raise ValueError(f"values must be valid numpy.ndarray with ndim == 1.")
+        raise ValueError("values must be valid numpy.ndarray with ndim == 1")
 
     cdef double[:] mv = values
     cdef int length = len(mv)
@@ -65,7 +65,7 @@ cpdef inline double fast_mean_iterated(
     double current_value,
     int expected_length,
     bint drop_left=True,
-) except *:
+):
     """
     Return the calculated average from the given inputs.
 
@@ -93,7 +93,7 @@ cpdef inline double fast_mean_iterated(
 
     """
     if values is None or values.ndim != 1:
-        raise ValueError(f"values must be valid ndarray with ndim == 1.")
+        raise ValueError("values must be valid ndarray with ndim == 1")
 
     cdef double[:] mv = values
     cdef int length = len(mv)
@@ -107,7 +107,7 @@ cpdef inline double fast_mean_iterated(
     return current_value + (next_value - value_to_drop) / length
 
 
-cpdef inline double fast_std(np.ndarray values) except *:
+cpdef inline double fast_std(np.ndarray values):
     """
     Return the standard deviation from the given values.
 
@@ -130,7 +130,7 @@ cpdef inline double fast_std(np.ndarray values) except *:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double fast_std_with_mean(np.ndarray values, double mean) except *:
+cpdef double fast_std_with_mean(np.ndarray values, double mean):
     """
     Return the standard deviation from the given values and mean.
 
@@ -151,7 +151,7 @@ cpdef double fast_std_with_mean(np.ndarray values, double mean) except *:
 
     """
     if values is None or values.ndim != 1:
-        raise ValueError(f"values must be valid ndarray with ndim == 1.")
+        raise ValueError("values must be valid ndarray with ndim == 1")
 
     cdef double[:] mv = values
     cdef int length = len(mv)
@@ -170,7 +170,62 @@ cpdef double fast_std_with_mean(np.ndarray values, double mean) except *:
     return sqrt(std_dev / length)
 
 
-cpdef inline double basis_points_as_percentage(double basis_points) except *:
+cpdef inline double fast_mad(np.ndarray values):
+    """
+    Return the mean absolute deviation from the given values.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array for the calculation.
+
+    Returns
+    -------
+    double
+
+    """
+    return fast_mad_with_mean(values, fast_mean(values))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double fast_mad_with_mean(np.ndarray values, double mean):
+    """
+    Return the mean absolute deviation from the given values and mean.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array for the calculation.
+    mean : double
+        The pre-calculated mean of the given values.
+
+    Returns
+    -------
+    double
+
+    """
+    if values is None or values.ndim != 1:
+        raise ValueError("values must be valid ndarray with ndim == 1")
+
+    cdef double[:] mv = values
+    cdef int length = len(mv)
+
+    if length == 0:
+        return 0.0
+
+    cdef double mad = 0.0
+    cdef double v
+    cdef int i
+    with nogil:
+        for i in range(length):
+            v = abs(mv[i] - mean)
+            mad += v
+
+    return mad / length
+
+
+cpdef inline double basis_points_as_percentage(double basis_points):
     """
     Return the given basis points expressed as a percentage where 100% = 1.0.
 

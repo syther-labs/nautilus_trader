@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -31,4 +31,4 @@ cdef class BollingerBands(Indicator):
     cdef readonly double lower
     """The current value of the lower band.\n\n:returns: `double`"""
 
-    cpdef void update_raw(self, double high, double low, double close) except *
+    cpdef void update_raw(self, double high, double low, double close)

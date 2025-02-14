@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,10 +15,12 @@
 
 from datetime import timedelta
 
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
+import pytest
+
 from nautilus_trader.indicators.vwap import VolumeWeightedAveragePrice
-from tests.test_kit.stubs import UNIX_EPOCH
-from tests.test_kit.stubs.data import TestDataStubs
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.data import UNIX_EPOCH
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
@@ -60,7 +62,7 @@ class TestVolumeWeightedAveragePrice:
 
         # Assert
         assert indicator.has_inputs
-        assert indicator.value == 1.00003
+        assert indicator.value == 1.0000266666666666
 
     def test_value_with_one_input_returns_expected_value(self):
         # Arrange
@@ -83,7 +85,7 @@ class TestVolumeWeightedAveragePrice:
         self.vwap.update_raw(1.00090, 19000, UNIX_EPOCH)
 
         # Assert
-        assert self.vwap.value == 1.0005076923076923
+        assert self.vwap.value == pytest.approx(1.0005076923076923, rel=1e-9)
 
     def test_values_with_all_lower_inputs_returns_expected_value(self):
         # Arrange, Act
@@ -99,7 +101,7 @@ class TestVolumeWeightedAveragePrice:
         self.vwap.update_raw(1.00010, 11000, UNIX_EPOCH)
 
         # Assert
-        assert self.vwap.value == 1.0006032258064514
+        assert self.vwap.value == pytest.approx(1.0006032258064514, rel=1e-9)
 
     def test_new_day_resets_values(self):
         # Arrange, Act

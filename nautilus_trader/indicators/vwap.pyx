@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,7 +18,7 @@ from cpython.datetime cimport datetime
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class VolumeWeightedAveragePrice(Indicator):
@@ -34,7 +34,7 @@ cdef class VolumeWeightedAveragePrice(Indicator):
         self._volume_total = 0
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -47,7 +47,11 @@ cdef class VolumeWeightedAveragePrice(Indicator):
         Condition.not_none(bar, "bar")
 
         self.update_raw(
-            bar.close.as_double(),
+            (
+                bar.close.as_double() +
+                bar.high.as_double() +
+                bar.low.as_double()
+            ) / 3.0,
             bar.volume.as_double(),
             pd.Timestamp(bar.ts_init, tz="UTC"),
         )
@@ -57,7 +61,7 @@ cdef class VolumeWeightedAveragePrice(Indicator):
         double price,
         double volume,
         datetime timestamp,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw values.
 
@@ -90,7 +94,7 @@ cdef class VolumeWeightedAveragePrice(Indicator):
         self._volume_total += volume
         self.value = self._price_volume / self._volume_total
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._day = 0
         self._price_volume = 0
         self._volume_total = 0

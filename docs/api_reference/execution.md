@@ -4,7 +4,15 @@
 .. automodule:: nautilus_trader.execution
 ```
 
-## Client
+## Components
+
+```{eval-rst}
+.. automodule:: nautilus_trader.execution.algorithm
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
 
 ```{eval-rst}
 .. automodule:: nautilus_trader.execution.client
@@ -14,10 +22,32 @@
    :member-order: bysource
 ```
 
-## Engine
+```{eval-rst}
+.. automodule:: nautilus_trader.execution.emulator
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
 
 ```{eval-rst}
 .. automodule:: nautilus_trader.execution.engine
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
+.. automodule:: nautilus_trader.execution.manager
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
+.. automodule:: nautilus_trader.execution.matching_core
    :show-inheritance:
    :inherited-members:
    :members:
@@ -38,16 +68,6 @@
 
 ```{eval-rst}
 .. automodule:: nautilus_trader.execution.reports
-   :show-inheritance:
-   :inherited-members:
-   :members:
-   :member-order: bysource
-```
-
-## Config
-
-```{eval-rst}
-.. automodule:: nautilus_trader.execution.config
    :show-inheritance:
    :inherited-members:
    :members:

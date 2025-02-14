@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,30 +17,26 @@ from collections import deque
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class OnBalanceVolume(Indicator):
     """
     An indicator which calculates the momentum of relative positive or negative
     volume.
+
+    Parameters
+    ----------
+    period : int
+        The period for the indicator, zero indicates no window (>= 0).
+
+    Raises
+    ------
+    ValueError
+        If `period` is negative (< 0).
     """
 
     def __init__(self, int period=0):
-        """
-        Initialize a new instance of the ``OnBalanceVolume`` class.
-
-        Parameters
-        ----------
-        period : int
-            The period for the indicator, zero indicates no window (>= 0).
-
-        Raises
-        ------
-        ValueError
-            If `period` is negative (< 0).
-
-        """
         Condition.not_negative(period, "period")
         super().__init__(params=[period])
 
@@ -48,7 +44,7 @@ cdef class OnBalanceVolume(Indicator):
         self._obv = deque(maxlen=None if period == 0 else period)
         self.value = 0
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -71,7 +67,7 @@ cdef class OnBalanceVolume(Indicator):
         double open,
         double close,
         double volume,
-    ) except *:
+    ):
         """
         Update the indicator with the given raw values.
 
@@ -100,6 +96,6 @@ cdef class OnBalanceVolume(Indicator):
             if (self.period == 0 and len(self._obv) > 0) or len(self._obv) >= self.period:
                 self._set_initialized(True)
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._obv.clear()
         self.value = 0

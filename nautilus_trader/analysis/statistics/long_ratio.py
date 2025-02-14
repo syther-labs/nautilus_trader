@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,7 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, List, Optional
+from typing import Any
 
 from nautilus_trader.analysis.statistic import PortfolioStatistic
 from nautilus_trader.model.enums import OrderSide
@@ -28,12 +28,13 @@ class LongRatio(PortfolioStatistic):
     ----------
     precision : int, default 2
         The decimal precision for the output.
+
     """
 
     def __init__(self, precision: int = 2):
         self.precision = precision
 
-    def calculate_from_positions(self, positions: List[Position]) -> Optional[Any]:
+    def calculate_from_positions(self, positions: list[Position]) -> Any | None:
         # Preconditions
         if not positions:
             return None
