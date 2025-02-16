@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,27 +13,33 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Dict
+from __future__ import annotations
 
-import pydantic
-from pydantic import ConstrainedStr
+from nautilus_trader.common.config import NautilusConfig
 
 
-class RiskEngineConfig(pydantic.BaseModel):
+class RiskEngineConfig(NautilusConfig, frozen=True):
     """
     Configuration for ``RiskEngine`` instances.
 
     Parameters
     ----------
-    bypass : bool
-        If True then all risk checks are bypassed (will still check for duplicate IDs).
-    max_order_rate : str, default 100/00:00:01
-        The maximum order rate per timedelta.
-    max_notional_per_order : Dict[str, str]
+    bypass : bool, default False
+        If True, then will bypass all pre-trade risk checks and rate limits (will still check for duplicate IDs).
+    max_order_submit_rate : str, default 100/00:00:01
+        The maximum rate of submit order commands per timedelta.
+    max_order_modify_rate : str, default 100/00:00:01
+        The maximum rate of modify order commands per timedelta.
+    max_notional_per_order : dict[str, int], default empty dict
         The maximum notional value of an order per instrument ID.
         The value should be a valid decimal format.
+    debug : bool, default False
+        If debug mode is active (will provide extra debug logging).
+
     """
 
     bypass: bool = False
-    max_order_rate: ConstrainedStr = ConstrainedStr("100/00:00:01")
-    max_notional_per_order: Dict[str, str] = {}
+    max_order_submit_rate: str = "100/00:00:01"
+    max_order_modify_rate: str = "100/00:00:01"
+    max_notional_per_order: dict[str, int] = {}
+    debug: bool = False

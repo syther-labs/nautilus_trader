@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,31 +13,42 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.model.orderbook.book import L3OrderBook
-from tests.test_kit.stubs.data import TestDataStubs
-from tests.test_kit.stubs.identifiers import TestIdStubs
+import pytest
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.objects import Price
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
-def run_l3_test(book, feed):
-    for m in feed:
-        if m["op"] == "update":
-            book.update(order=m["order"])
-        elif m["op"] == "delete":
-            book.delete(order=m["order"])
-    return book
+@pytest.mark.skip(reason="development_only")
+def test_orderbook_spy_xnas_itch_mbo_l3(benchmark) -> None:
+    loader = DatabentoDataLoader()
+    path = TEST_DATA_DIR / "databento" / "temp" / "spy-xnas-itch-20231127.mbo.dbn.zst"
+    instrument = TestInstrumentProvider.equity(symbol="SPY", venue="XNAS")
+    data = loader.from_dbn_file(path, instrument_id=instrument.id, as_legacy_cython=True)
 
-
-def test_orderbook_updates(benchmark):
-    # We only care about the actual updates here, so instantiate orderbook and
-    # load updates outside of benchmark
-    book = L3OrderBook(
-        instrument_id=TestIdStubs.audusd_id(),
-        price_precision=5,
-        size_precision=0,
+    book = TestDataStubs.make_book(
+        instrument=instrument,
+        book_type=BookType.L3_MBO,
     )
-    feed = TestDataStubs.l3_feed()
-    assert len(feed) == 100048  # 100k updates
 
-    # benchmark something
-    # book = benchmark(run_l3_test, book=book, feed=feed)
-    benchmark.pedantic(run_l3_test, args=(book, feed), rounds=10, iterations=10, warmup_rounds=5)
+    def _apply_deltas():
+        for delta in data:
+            if not isinstance(delta, OrderBookDelta):
+                continue
+            book.apply_delta(delta)
+
+    benchmark(_apply_deltas)
+
+    # Assert
+    assert book.ts_last == 1701129555644234540
+    assert book.sequence == 429411899
+    assert book.count == 6197580
+    assert len(book.bids()) == 52
+    assert len(book.asks()) == 38
+    assert book.best_bid_price() == Price.from_str("454.84")
+    assert book.best_ask_price() == Price.from_str("454.90")

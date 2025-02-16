@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,14 +17,20 @@ from decimal import Decimal
 
 from cpython.datetime cimport datetime
 
-from nautilus_trader.common.clock cimport Clock
+from nautilus_trader.cache.base cimport CacheFacade
+from nautilus_trader.common.component cimport Clock
 from nautilus_trader.common.generators cimport ClientOrderIdGenerator
-from nautilus_trader.common.uuid cimport UUIDFactory
-from nautilus_trader.model.c_enums.order_side cimport OrderSide
-from nautilus_trader.model.c_enums.time_in_force cimport TimeInForce
-from nautilus_trader.model.c_enums.trailing_offset_type cimport TrailingOffsetType
-from nautilus_trader.model.c_enums.trigger_type cimport TriggerType
+from nautilus_trader.common.generators cimport OrderListIdGenerator
+from nautilus_trader.core.rust.model cimport ContingencyType
+from nautilus_trader.core.rust.model cimport OrderSide
+from nautilus_trader.core.rust.model cimport OrderType
+from nautilus_trader.core.rust.model cimport TimeInForce
+from nautilus_trader.core.rust.model cimport TrailingOffsetType
+from nautilus_trader.core.rust.model cimport TriggerType
+from nautilus_trader.model.identifiers cimport ClientOrderId
+from nautilus_trader.model.identifiers cimport ExecAlgorithmId
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.identifiers cimport OrderListId
 from nautilus_trader.model.identifiers cimport StrategyId
 from nautilus_trader.model.identifiers cimport TraderId
 from nautilus_trader.model.objects cimport Price
@@ -43,19 +49,22 @@ from nautilus_trader.model.orders.trailing_stop_market cimport TrailingStopMarke
 
 cdef class OrderFactory:
     cdef Clock _clock
-    cdef UUIDFactory _uuid_factory
-    cdef ClientOrderIdGenerator _id_generator
-    cdef int _order_list_id
+    cdef CacheFacade _cache
+    cdef ClientOrderIdGenerator _order_id_generator
+    cdef OrderListIdGenerator _order_list_id_generator
 
     cdef readonly TraderId trader_id
     """The order factories trader ID.\n\n:returns: `TraderId`"""
     cdef readonly StrategyId strategy_id
     """The order factories trading strategy ID.\n\n:returns: `StrategyId`"""
 
-    cdef int count_c(self)
+    cpdef void set_client_order_id_count(self, int count)
+    cpdef void set_order_list_id_count(self, int count)
+    cpdef ClientOrderId generate_client_order_id(self)
+    cpdef OrderListId generate_order_list_id(self)
+    cpdef void reset(self)
 
-    cpdef void set_count(self, int count) except *
-    cpdef void reset(self) except *
+    cpdef OrderList create_list(self, list orders)
 
     cpdef MarketOrder market(
         self,
@@ -64,7 +73,11 @@ cdef class OrderFactory:
         Quantity quantity,
         TimeInForce time_in_force=*,
         bint reduce_only=*,
-        str tags=*,
+        bint quote_quantity=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef LimitOrder limit(
@@ -77,8 +90,14 @@ cdef class OrderFactory:
         datetime expire_time=*,
         bint post_only=*,
         bint reduce_only=*,
+        bint quote_quantity=*,
         Quantity display_qty=*,
-        str tags=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef StopMarketOrder stop_market(
@@ -91,7 +110,13 @@ cdef class OrderFactory:
         TimeInForce time_in_force=*,
         datetime expire_time=*,
         bint reduce_only=*,
-        str tags=*,
+        bint quote_quantity=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef StopLimitOrder stop_limit(
@@ -106,8 +131,14 @@ cdef class OrderFactory:
         datetime expire_time=*,
         bint post_only=*,
         bint reduce_only=*,
+        bint quote_quantity=*,
         Quantity display_qty=*,
-        str tags=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef MarketToLimitOrder market_to_limit(
@@ -118,8 +149,12 @@ cdef class OrderFactory:
         TimeInForce time_in_force=*,
         datetime expire_time=*,
         bint reduce_only=*,
+        bint quote_quantity=*,
         Quantity display_qty=*,
-        str tags=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef MarketIfTouchedOrder market_if_touched(
@@ -132,7 +167,13 @@ cdef class OrderFactory:
         TimeInForce time_in_force=*,
         datetime expire_time=*,
         bint reduce_only=*,
-        str tags=*,
+        bint quote_quantity=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef LimitIfTouchedOrder limit_if_touched(
@@ -147,8 +188,14 @@ cdef class OrderFactory:
         datetime expire_time=*,
         bint post_only=*,
         bint reduce_only=*,
+        bint quote_quantity=*,
         Quantity display_qty=*,
-        str tags=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef TrailingStopMarketOrder trailing_stop_market(
@@ -159,11 +206,17 @@ cdef class OrderFactory:
         trailing_offset: Decimal,
         Price trigger_price=*,
         TriggerType trigger_type=*,
-        TrailingOffsetType offset_type=*,
+        TrailingOffsetType trailing_offset_type=*,
         TimeInForce time_in_force=*,
         datetime expire_time=*,
         bint reduce_only=*,
-        str tags=*,
+        bint quote_quantity=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
     cpdef TrailingStopLimitOrder trailing_stop_limit(
@@ -176,35 +229,53 @@ cdef class OrderFactory:
         Price price=*,
         Price trigger_price=*,
         TriggerType trigger_type=*,
-        TrailingOffsetType offset_type=*,
+        TrailingOffsetType trailing_offset_type=*,
         TimeInForce time_in_force=*,
         datetime expire_time=*,
         bint post_only=*,
         bint reduce_only=*,
+        bint quote_quantity=*,
         Quantity display_qty=*,
-        str tags=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ExecAlgorithmId exec_algorithm_id=*,
+        dict exec_algorithm_params=*,
+        list[str] tags=*,
+        ClientOrderId client_order_id=*,
     )
 
-    cpdef OrderList bracket_market(
+    cpdef OrderList bracket(
         self,
         InstrumentId instrument_id,
         OrderSide order_side,
         Quantity quantity,
-        Price stop_loss,
-        Price take_profit,
-        TimeInForce tif_bracket=*,
-    )
-
-    cpdef OrderList bracket_limit(
-        self,
-        InstrumentId instrument_id,
-        OrderSide order_side,
-        Quantity quantity,
-        Price entry,
-        Price stop_loss,
-        Price take_profit,
-        TimeInForce tif=*,
+        Price entry_trigger_price=*,
+        Price entry_price=*,
+        Price sl_trigger_price=*,
+        Price tp_trigger_price=*,
+        Price tp_price=*,
+        OrderType entry_order_type=*,
+        OrderType tp_order_type=*,
+        TimeInForce time_in_force=*,
+        TimeInForce sl_time_in_force=*,
+        TimeInForce tp_time_in_force=*,
         datetime expire_time=*,
-        TimeInForce tif_bracket=*,
-        bint post_only=*,
+        bint entry_post_only=*,
+        bint tp_post_only=*,
+        bint quote_quantity=*,
+        TriggerType emulation_trigger=*,
+        InstrumentId trigger_instrument_id=*,
+        ContingencyType contingency_type=*,
+        ExecAlgorithmId entry_exec_algorithm_id=*,
+        ExecAlgorithmId sl_exec_algorithm_id=*,
+        ExecAlgorithmId tp_exec_algorithm_id=*,
+        dict entry_exec_algorithm_params=*,
+        dict sl_exec_algorithm_params=*,
+        dict tp_exec_algorithm_params=*,
+        list[str] entry_tags=*,
+        list[str] sl_tags=*,
+        list[str] tp_tags=*,
+        ClientOrderId entry_client_order_id=*,
+        ClientOrderId sl_client_order_id=*,
+        ClientOrderId tp_client_order_id=*,
     )

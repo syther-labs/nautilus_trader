@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,18 +13,20 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from datetime import datetime
-from typing import List, Optional
+import pandas as pd
 
+from nautilus_trader.execution.messages import BatchCancelOrders
 from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.execution.messages import CancelOrder
 from nautilus_trader.execution.messages import ModifyOrder
+from nautilus_trader.execution.messages import QueryOrder
 from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.execution.messages import SubmitOrderList
+from nautilus_trader.execution.reports import FillReport
 from nautilus_trader.execution.reports import OrderStatusReport
 from nautilus_trader.execution.reports import PositionStatusReport
-from nautilus_trader.execution.reports import TradeReport
 from nautilus_trader.live.execution_client import LiveExecutionClient
+from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import VenueOrderId
 
@@ -34,7 +36,7 @@ from nautilus_trader.model.identifiers import VenueOrderId
 # The reason for their use is to reduce redundant/needless tests which simply
 # assert that a `NotImplementedError` is raised when calling abstract methods.
 # These tests are expensive to maintain (as they must be kept in line with any
-# refactorings), and offer little to no benefit in return. However, the intention
+# refactorings), and offer little to no benefit in return. The intention
 # is for all method implementations to be fully covered by tests.
 
 # *** THESE PRAGMA: NO COVER COMMENTS MUST BE REMOVED IN ANY IMPLEMENTATION. ***
@@ -44,174 +46,125 @@ class TemplateLiveExecutionClient(LiveExecutionClient):
     """
     An example of a ``LiveExecutionClient`` highlighting the method requirements.
 
-    +----------------------------------+-------------+
-    | Method                           | Requirement |
-    +----------------------------------+-------------+
-    | connect                          | required    |
-    | disconnect                       | required    |
-    | reset                            | optional    |
-    | dispose                          | optional    |
-    +------------------------------------------------+
-    | submit_order                     | required    |
-    | submit_order_list                | required    |
-    | modify_order                     | required    |
-    | cancel_order                     | required    |
-    | cancel_all_orders                | required    |
-    | generate_order_status_report     | required    |
-    | generate_order_status_reports    | required    |
-    | generate_trade_reports           | required    |
-    | generate_position_status_reports | required    |
-    +------------------------------------------------+
+    +--------------------------------------------+-------------+
+    | Method                                     | Requirement |
+    +--------------------------------------------+-------------+
+    | _connect                                   | required    |
+    | _disconnect                                | required    |
+    | reset                                      | optional    |
+    | dispose                                    | optional    |
+    +--------------------------------------------+-------------+
+    | _submit_order                              | required    |
+    | _submit_order_list                         | required    |
+    | _modify_order                              | optional    |
+    | _cancel_order                              | required    |
+    | _cancel_all_orders                         | required    |
+    | _batch_cancel_orders                       | optional    |
+    | generate_order_status_report               | required    |
+    | generate_order_status_reports              | required    |
+    | generate_fill_reports                      | required    |
+    | generate_position_status_reports           | required    |
+    +--------------------------------------------+-------------+
+
     """
 
-    def connect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _connect(self) -> None:
+        raise NotImplementedError(
+            "method `_connect` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def disconnect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _disconnect(self) -> None:
+        raise NotImplementedError(
+            "method `_disconnect` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def reset(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `reset` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def dispose(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `dispose` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- EXECUTION REPORTS -------------------------------------------------------------------------
+    # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
     async def generate_order_status_report(
         self,
         instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
-    ) -> Optional[OrderStatusReport]:
-        """
-        Generate an order status report for the given venue order ID.
-
-        If the order is not found, or an error occurs, then logs and returns
-        ``None``.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The instrument ID for the report.
-        venue_order_id : VenueOrderId
-            The venue order ID for the report.
-
-        Returns
-        -------
-        OrderStatusReport or ``None``
-
-        """
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        client_order_id: ClientOrderId | None = None,
+        venue_order_id: VenueOrderId | None = None,
+    ) -> OrderStatusReport | None:
+        raise NotImplementedError(
+            "method `generate_order_status_report` must be implemented in the subclass",
+        )  # pragma: no cover
 
     async def generate_order_status_reports(
         self,
-        instrument_id: InstrumentId = None,
-        start: datetime = None,
-        end: datetime = None,
+        instrument_id: InstrumentId | None = None,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
         open_only: bool = False,
-    ) -> List[OrderStatusReport]:
-        """
-        Generate a list of order status reports with optional query filters.
+    ) -> list[OrderStatusReport]:
+        raise NotImplementedError(
+            "method `generate_order_status_reports` must be implemented in the subclass",
+        )  # pragma: no cover
 
-        The returned list may be empty if no orders match the given parameters.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId, optional
-            The instrument ID query filter.
-        start : datetime, optional
-            The start datetime query filter.
-        end : datetime, optional
-            The end datetime query filter.
-        open_only : bool, default False
-            If the query is for open orders only.
-
-        Returns
-        -------
-        list[OrderStatusReport]
-
-        """
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
-
-    async def generate_trade_reports(
+    async def generate_fill_reports(
         self,
-        instrument_id: InstrumentId = None,
-        venue_order_id: VenueOrderId = None,
-        start: datetime = None,
-        end: datetime = None,
-    ) -> List[TradeReport]:
-        """
-        Generate a list of trade reports with optional query filters.
-
-        The returned list may be empty if no trades match the given parameters.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId, optional
-            The instrument ID query filter.
-        venue_order_id : VenueOrderId, optional
-            The venue order ID (assigned by the venue) query filter.
-        start : datetime, optional
-            The start datetime query filter.
-        end : datetime, optional
-            The end datetime query filter.
-
-        Returns
-        -------
-        list[TradeReport]
-
-        """
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        instrument_id: InstrumentId | None = None,
+        venue_order_id: VenueOrderId | None = None,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
+    ) -> list[FillReport]:
+        raise NotImplementedError(
+            "method `generate_fill_reports` must be implemented in the subclass",
+        )  # pragma: no cover
 
     async def generate_position_status_reports(
         self,
-        instrument_id: InstrumentId = None,
-        start: datetime = None,
-        end: datetime = None,
-    ) -> List[PositionStatusReport]:
-        """
-        Generate a list of position status reports with optional query filters.
+        instrument_id: InstrumentId | None = None,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
+    ) -> list[PositionStatusReport]:
+        raise NotImplementedError(
+            "method `generate_position_status_reports` must be implemented in the subclass",
+        )  # pragma: no cover
 
-        The returned list may be empty if no positions match the given parameters.
+    # -- COMMAND HANDLERS -------------------------------------------------------------------------
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId, optional
-            The instrument ID query filter.
-        start : datetime, optional
-            The start datetime query filter.
-        end : datetime, optional
-            The end datetime query filter.
+    async def _submit_order(self, command: SubmitOrder) -> None:
+        raise NotImplementedError(
+            "method `_submit_order` must be implemented in the subclass",
+        )  # pragma: no cover
 
-        Returns
-        -------
-        list[PositionStatusReport]
+    async def _submit_order_list(self, command: SubmitOrderList) -> None:
+        raise NotImplementedError(
+            "method `_submit_order_list` must be implemented in the subclass",
+        )  # pragma: no cover
 
-        """
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _modify_order(self, command: ModifyOrder) -> None:
+        raise NotImplementedError(
+            "method `_modify_order` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- COMMAND HANDLERS --------------------------------------------------------------------------
+    async def _cancel_order(self, command: CancelOrder) -> None:
+        raise NotImplementedError(
+            "method `_cancel_order` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def submit_order(self, command: SubmitOrder) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _cancel_all_orders(self, command: CancelAllOrders) -> None:
+        raise NotImplementedError(
+            "method `_cancel_all_orders` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def submit_order_list(self, command: SubmitOrderList) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _batch_cancel_orders(self, command: BatchCancelOrders) -> None:
+        raise NotImplementedError(
+            "method `_batch_cancel_orders` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def modify_order(self, command: ModifyOrder) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
-
-    def cancel_order(self, command: CancelOrder) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
-
-    def cancel_all_orders(self, command: CancelAllOrders) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _query_order(self, command: QueryOrder) -> None:
+        raise NotImplementedError(
+            "method `_query_order` must be implemented in the subclass",
+        )  # pragma: no cover

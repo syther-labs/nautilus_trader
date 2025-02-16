@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,56 +13,80 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import importlib
-import importlib.util
-import sys
-from importlib.machinery import ModuleSpec
-from types import ModuleType
-from typing import Optional, Union
+from __future__ import annotations
 
-from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.common.config import ImportableActorConfig
+from typing import Any
+
+import msgspec
+
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.common.config import msgspec_encoding_hook
+from nautilus_trader.common.config import resolve_config_path
+from nautilus_trader.common.config import resolve_path
 from nautilus_trader.core.correctness import PyCondition
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import StrategyId
 
 
-class TradingStrategyConfig(ActorConfig):
+class StrategyConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     The base model for all trading strategy configurations.
 
     Parameters
     ----------
-    component_id : str, optional
-        The unique component ID for the strategy. Will become the strategy ID if not None.
-    order_id_tag : str
+    strategy_id : StrategyId, optional
+        The unique ID for the strategy. Will become the strategy ID if not None.
+    order_id_tag : str, optional
         The unique order ID tag for the strategy. Must be unique
         amongst all running strategies for a particular trader ID.
-    oms_type : OMSType, optional
+    oms_type : OmsType, optional
         The order management system type for the strategy. This will determine
-        how the `ExecutionEngine` handles position IDs (see docs).
+        how the `ExecutionEngine` handles position IDs.
+    external_order_claims : list[InstrumentId], optional
+        The external order claim instrument IDs.
+        External orders for matching instrument IDs will be associated with (claimed by) the strategy.
+    manage_contingent_orders : bool, default False
+        If OUO and OCO **open** contingent orders should be managed automatically by the strategy.
+        Any emulated orders which are active local will be managed by the `OrderEmulator` instead.
+    manage_gtd_expiry : bool, default False
+        If all order GTD time in force expirations should be managed by the strategy.
+        If True, then will ensure open orders have their GTD timers re-activated on start.
+    log_events : bool, default True
+        If events should be logged by the strategy.
+        If False, then only warning events and above are logged.
+    log_commands : bool, default True
+        If commands should be logged by the strategy.
 
     """
 
-    order_id_tag: str = "000"
-    oms_type: Optional[str] = None
+    strategy_id: StrategyId | None = None
+    order_id_tag: str | None = None
+    oms_type: str | None = None
+    external_order_claims: list[InstrumentId] | None = None
+    manage_contingent_orders: bool = False
+    manage_gtd_expiry: bool = False
+    log_events: bool = True
+    log_commands: bool = True
 
 
-class ImportableStrategyConfig(ImportableActorConfig):
+class ImportableStrategyConfig(NautilusConfig, frozen=True):
     """
-    Represents a trading strategy configuration for one specific backtest run.
+    Configuration for a trading strategy instance.
 
     Parameters
     ----------
-    path : str, optional
-        The fully qualified name of the module.
-    source : bytes, optional
-        The strategy source code.
-    config : Union[TradingStrategyConfig, str]
-        The strategy configuration
+    strategy_path : str
+        The fully qualified name of the strategy class.
+    config_path : str
+        The fully qualified name of the config class.
+    config : dict[str, Any]
+        The strategy configuration.
+
     """
 
-    path: Optional[str]
-    source: Optional[bytes]
-    config: Union[TradingStrategyConfig, str]
+    strategy_path: str
+    config_path: str
+    config: dict[str, Any]
 
 
 class StrategyFactory:
@@ -82,7 +106,7 @@ class StrategyFactory:
 
         Returns
         -------
-        TradingStrategy
+        Strategy
 
         Raises
         ------
@@ -91,19 +115,28 @@ class StrategyFactory:
 
         """
         PyCondition.type(config, ImportableStrategyConfig, "config")
-        if (config.path is None or config.path.isspace()) and (
-            config.source is None or config.source.isspace()
-        ):
-            raise ValueError("both `source` and `path` were None")
+        strategy_cls = resolve_path(config.strategy_path)
+        config_cls = resolve_config_path(config.config_path)
+        json = msgspec.json.encode(config.config, enc_hook=msgspec_encoding_hook)
+        config = config_cls.parse(json)
+        return strategy_cls(config=config)
 
-        if config.path is not None:
-            mod = importlib.import_module(config.module)
-            cls = getattr(mod, config.cls)
-            assert isinstance(config.config, TradingStrategyConfig)
-            return cls(config=config.config)
-        else:
-            spec: ModuleSpec = importlib.util.spec_from_loader(config.module, loader=None)
-            module: ModuleType = importlib.util.module_from_spec(spec)
 
-            exec(config.source, module.__dict__)  # noqa
-            sys.modules[config.module] = module
+class ImportableControllerConfig(NautilusConfig, frozen=True):
+    """
+    Configuration for a controller instance.
+
+    Parameters
+    ----------
+    controller_path : str
+        The fully qualified name of the controller class.
+    config_path : str
+        The fully qualified name of the config class.
+    config : dict[str, Any]
+        The controller configuration.
+
+    """
+
+    controller_path: str
+    config_path: str
+    config: dict

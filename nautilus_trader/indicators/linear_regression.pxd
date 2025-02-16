@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -21,7 +21,17 @@ cdef class LinearRegression(Indicator):
 
     cdef readonly int period
     """The window period.\n\n:returns: `int`"""
+    cdef readonly double slope
+    """The current slope.\n\n:returns: `double`"""
+    cdef readonly double intercept
+    """The current intercept.\n\n:returns: `double`"""
+    cdef readonly double degree
+    """The current degree.\n\n:returns: `double`"""
+    cdef readonly double cfo
+    """The current cfo value.\n\n:returns: `double`"""
+    cdef readonly double R2
+    """The current R2 value.\n\n:returns: `double`"""
     cdef readonly double value
     """The current value.\n\n:returns: `double`"""
 
-    cpdef void update_raw(self, double close_price) except *
+    cpdef void update_raw(self, double close_price)

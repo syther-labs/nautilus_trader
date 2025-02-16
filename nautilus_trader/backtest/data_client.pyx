@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,23 +17,43 @@
 This module provides a data client for backtesting.
 """
 
-from cpython.datetime cimport datetime
+from nautilus_trader.common.config import NautilusConfig
 
 from nautilus_trader.cache.cache cimport Cache
-from nautilus_trader.common.clock cimport Clock
-from nautilus_trader.common.logging cimport Logger
+from nautilus_trader.common.component cimport Clock
+from nautilus_trader.common.component cimport MessageBus
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.core.uuid cimport UUID4
+from nautilus_trader.core.rust.model cimport BookType
 from nautilus_trader.data.client cimport DataClient
 from nautilus_trader.data.client cimport MarketDataClient
-from nautilus_trader.model.c_enums.book_type cimport BookType
-from nautilus_trader.model.data.bar cimport BarType
-from nautilus_trader.model.data.base cimport DataType
+from nautilus_trader.data.messages cimport RequestBars
+from nautilus_trader.data.messages cimport RequestData
+from nautilus_trader.data.messages cimport RequestInstrument
+from nautilus_trader.data.messages cimport RequestInstruments
+from nautilus_trader.data.messages cimport RequestOrderBookSnapshot
+from nautilus_trader.data.messages cimport RequestQuoteTicks
+from nautilus_trader.data.messages cimport RequestTradeTicks
+from nautilus_trader.data.messages cimport SubscribeBars
+from nautilus_trader.data.messages cimport SubscribeData
+from nautilus_trader.data.messages cimport SubscribeInstrument
+from nautilus_trader.data.messages cimport SubscribeInstrumentClose
+from nautilus_trader.data.messages cimport SubscribeInstruments
+from nautilus_trader.data.messages cimport SubscribeInstrumentStatus
+from nautilus_trader.data.messages cimport SubscribeOrderBook
+from nautilus_trader.data.messages cimport SubscribeQuoteTicks
+from nautilus_trader.data.messages cimport SubscribeTradeTicks
+from nautilus_trader.data.messages cimport UnsubscribeBars
+from nautilus_trader.data.messages cimport UnsubscribeData
+from nautilus_trader.data.messages cimport UnsubscribeInstrument
+from nautilus_trader.data.messages cimport UnsubscribeInstrumentClose
+from nautilus_trader.data.messages cimport UnsubscribeInstruments
+from nautilus_trader.data.messages cimport UnsubscribeInstrumentStatus
+from nautilus_trader.data.messages cimport UnsubscribeOrderBook
+from nautilus_trader.data.messages cimport UnsubscribeQuoteTicks
+from nautilus_trader.data.messages cimport UnsubscribeTradeTicks
 from nautilus_trader.model.identifiers cimport ClientId
-from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.instruments.base cimport Instrument
-from nautilus_trader.msgbus.bus cimport MessageBus
 
 
 cdef class BacktestDataClient(DataClient):
@@ -50,9 +70,7 @@ cdef class BacktestDataClient(DataClient):
         The cache for the client.
     clock : Clock
         The clock for the client.
-    logger : Logger
-        The logger for the client.
-    config : dict[str, object], optional
+    config : NautilusConfig, optional
         The configuration for the instance.
     """
 
@@ -62,79 +80,47 @@ cdef class BacktestDataClient(DataClient):
         MessageBus msgbus not None,
         Cache cache not None,
         Clock clock not None,
-        Logger logger not None,
-        dict config=None,
+        config: NautilusConfig | None = None,
     ):
         super().__init__(
             client_id=client_id,
-            venue=Venue(client_id.value),
+            venue=Venue(client_id.to_str()),
             msgbus=msgbus,
             cache=cache,
             clock=clock,
-            logger=logger,
             config=config,
         )
 
         self.is_connected = False
 
-    cpdef void _start(self) except *:
+    cpdef void _start(self):
         self._log.info(f"Connecting...")
         self.is_connected = True
-        self._log.info(f"Connected.")
+        self._log.info(f"Connected")
 
-    cpdef void _stop(self) except *:
+    cpdef void _stop(self):
         self._log.info(f"Disconnecting...")
         self.is_connected = False
-        self._log.info(f"Disconnected.")
+        self._log.info(f"Disconnected")
 
-# -- SUBSCRIPTIONS ---------------------------------------------------------------------------------
+# -- SUBSCRIPTIONS --------------------------------------------------------------------------------
 
-    cpdef void subscribe(self, DataType data_type) except *:
-        """
-        Subscribe to the given data type.
+    cpdef void subscribe(self, SubscribeData command):
+        Condition.not_none(command.data_type, "data_type")
 
-        Parameters
-        ----------
-        data_type : DataType
-            The data type to subscribe to.
-
-        """
-        Condition.not_none(data_type, "data_type")
-
-        self._add_subscription(data_type)
+        self._add_subscription(command.data_type)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe(self, DataType data_type) except *:
-        """
-        Unsubscribe from the given data type.
+    cpdef void unsubscribe(self, UnsubscribeData command):
+        Condition.not_none(command.data_type, "data_type")
 
-        Parameters
-        ----------
-        data_type : DataType
-            The data_type to unsubscribe from.
-
-        """
-        Condition.not_none(data_type, "data_type")
-
-        self._remove_subscription(data_type)
+        self._remove_subscription(command.data_type)
         # Do nothing else for backtest
 
-# -- REQUESTS --------------------------------------------------------------------------------------
+# -- REQUESTS -------------------------------------------------------------------------------------
 
-    cpdef void request(self, DataType data_type, UUID4 correlation_id) except *:
-        """
-        Request the given data type.
-
-        Parameters
-        ----------
-        data_type : DataType
-            The data type to request.
-        correlation_id : UUID4
-            The correlation ID for the response.
-
-        """
-        Condition.not_none(data_type, "data_type")
-
+    cpdef void request(self, RequestData request):
+        Condition.not_none(request.data_type, "data_type")
         # Do nothing else for backtest
 
 
@@ -152,8 +138,6 @@ cdef class BacktestMarketDataClient(MarketDataClient):
         The cache for the client.
     clock : Clock
         The clock for the client.
-    logger : Logger
-        The logger for the client.
     """
 
     def __init__(
@@ -162,436 +146,206 @@ cdef class BacktestMarketDataClient(MarketDataClient):
         MessageBus msgbus not None,
         Cache cache not None,
         Clock clock not None,
-        Logger logger not None,
     ):
         super().__init__(
             client_id=client_id,
-            venue=Venue(client_id.value),
+            venue=Venue(client_id.to_str()),
             msgbus=msgbus,
             cache=cache,
             clock=clock,
-            logger=logger,
         )
 
         self.is_connected = False
 
-    cpdef void _start(self) except *:
+    cpdef void _start(self):
         self._log.info(f"Connecting...")
         self.is_connected = True
-        self._log.info(f"Connected.")
+        self._log.info(f"Connected")
 
-    cpdef void _stop(self) except *:
+    cpdef void _stop(self):
         self._log.info(f"Disconnecting...")
         self.is_connected = False
-        self._log.info(f"Disconnected.")
+        self._log.info(f"Disconnected")
 
-# -- SUBSCRIPTIONS ---------------------------------------------------------------------------------
+# -- SUBSCRIPTIONS --------------------------------------------------------------------------------
 
-    cpdef void subscribe_instruments(self) except *:
-        """
-        Subscribe to `Instrument` data for the venue.
-
-        """
+    cpdef void subscribe_instruments(self, SubscribeInstruments command):
         cdef Instrument instrument
         for instrument in self._cache.instruments(Venue(self.id.value)):
-            self.subscribe_instrument(instrument.id)
+            self.subscribe_instrument(SubscribeInstrument(command.id, instrument.id, command.client_id, command.venue, command.ts_init, command.params))
         # Do nothing else for backtest
 
-    cpdef void subscribe_instrument(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `Instrument` data for the given instrument ID.
+    cpdef void subscribe_instrument(self, SubscribeInstrument command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The instrument to subscribe to.
+        if not self._cache.instrument(command.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.instrument_id} to subscribe for `Instrument` data",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_instrument(instrument_id)
+        self._add_subscription_instrument(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_order_book_snapshots(
-        self,
-        InstrumentId instrument_id,
-        BookType book_type,
-        int depth=0,
-        dict kwargs=None,
-    ) except *:
-        """
-        Subscribe to `OrderBook` data for the given instrument ID.
+    cpdef void subscribe_order_book_deltas(self, SubscribeOrderBook command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The order book instrument to subscribe to.
-        book_type : BookType {``L1_TBBO``, ``L2_MBP``, ``L3_MBO``}
-            The order book level.
-        depth : int, optional
-            The maximum depth for the order book. A depth of 0 is maximum depth.
-        kwargs : dict, optional
-            The keyword arguments for exchange specific parameters.
+        if not self._cache.instrument(command.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.instrument_id} to subscribe for `OrderBookDelta` data, "
+                "no data has been loaded for this instrument",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_order_book_snapshots(instrument_id)
+        self._add_subscription_order_book_deltas(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_order_book_deltas(
-        self,
-        InstrumentId instrument_id,
-        BookType book_type,
-        int depth=0,
-        dict kwargs=None,
-    ) except *:
-        """
-        Subscribe to `OrderBook` data for the given instrument ID.
+    cpdef void subscribe_order_book_snapshots(self, SubscribeOrderBook command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The order book instrument to subscribe to.
-        book_type : BookType {``L1_TBBO``, ``L2_MBP``, ``L3_MBO``}
-            The order book type.
-        depth : int, optional
-            The maximum depth for the order book. A depth of 0 is maximum depth.
-        kwargs : dict, optional
-            The keyword arguments for exchange specific parameters.
+        if not self._cache.instrument(command.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.instrument_id} to subscribe for `OrderBook` data, "
+                "no data has been loaded for this instrument.",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_order_book_deltas(instrument_id)
+        self._add_subscription_order_book_snapshots(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_ticker(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `Ticker` data for the given instrument ID.
+    cpdef void subscribe_quote_ticks(self, SubscribeQuoteTicks command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The ticker instrument to subscribe to.
+        if not self._cache.instrument(command.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.instrument_id} to subscribe for `QuoteTick` data, "
+                "No data has been loaded for this instrument",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_ticker(instrument_id)
+        self._add_subscription_quote_ticks(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_quote_ticks(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `QuoteTick` data for the given instrument ID.
+    cpdef void subscribe_trade_ticks(self, SubscribeTradeTicks command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to subscribe to.
+        if not self._cache.instrument(command.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.instrument_id} to subscribe for `TradeTick` data, "
+                "No data has been loaded for this instrument",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_quote_ticks(instrument_id)
+        self._add_subscription_trade_ticks(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_trade_ticks(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `TradeTick` data for the given instrument ID.
+    cpdef void subscribe_bars(self, SubscribeBars command):
+        Condition.not_none(command.bar_type, "bar_type")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to subscribe to.
+        if not self._cache.instrument(command.bar_type.instrument_id):
+            self._log.error(
+                f"Cannot find instrument {command.bar_type.instrument_id} to subscribe for `Bar` data, "
+                "No data has been loaded for this instrument",
+            )
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_trade_ticks(instrument_id)
+        self._add_subscription_bars(command.bar_type)
         # Do nothing else for backtest
 
-    cpdef void subscribe_bars(self, BarType bar_type) except *:
-        """
-        Subscribe to `Bar` data for the given bar type.
+    cpdef void subscribe_instrument_status(self, SubscribeInstrumentStatus command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        bar_type : BarType
-            The bar type to subscribe to.
-
-        """
-        Condition.not_none(bar_type, "bar_type")
-
-        self._add_subscription_bars(bar_type)
+        self._add_subscription_instrument_status(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_instrument_status_updates(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `InstrumentStatusUpdates` data for the given instrument ID.
+    cpdef void subscribe_instrument_close(self, SubscribeInstrumentClose command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to subscribe to.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_instrument_status_updates(instrument_id)
+        self._add_subscription_instrument_close(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void subscribe_instrument_close_prices(self, InstrumentId instrument_id) except *:
-        """
-        Subscribe to `InstrumentClosePrice` data for the given instrument ID.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to subscribe to.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._add_subscription_instrument_close_prices(instrument_id)
-        # Do nothing else for backtest
-
-    cpdef void unsubscribe_instruments(self) except *:
-        """
-        Unsubscribe from `Instrument` data for the venue.
-
-        """
+    cpdef void unsubscribe_instruments(self, UnsubscribeInstruments command):
         self._subscriptions_instrument.clear()
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_instrument(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `Instrument` data for the given instrument ID.
+    cpdef void unsubscribe_instrument(self, UnsubscribeInstrument command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_instrument(instrument_id)
+        self._remove_subscription_instrument(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_order_book_deltas(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `OrderBookData` data for the given instrument ID.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The order book instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_order_book_deltas(instrument_id)
+    cpdef void unsubscribe_order_book_deltas(self, UnsubscribeOrderBook command):
+        Condition.not_none(command.instrument_id, "instrument_id")
+        print("toto")
+        self._remove_subscription_order_book_deltas(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_order_book_snapshots(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `OrderBook` data for the given instrument ID.
+    cpdef void unsubscribe_order_book_snapshots(self, UnsubscribeOrderBook command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The order book instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_order_book_snapshots(instrument_id)
+        self._remove_subscription_order_book_snapshots(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_ticker(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `Ticker` data for the given instrument ID.
+    cpdef void unsubscribe_quote_ticks(self, UnsubscribeQuoteTicks command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The ticker instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_ticker(instrument_id)
+        self._remove_subscription_quote_ticks(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_quote_ticks(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `QuoteTick` data for the given instrument ID.
+    cpdef void unsubscribe_trade_ticks(self, UnsubscribeTradeTicks command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_quote_ticks(instrument_id)
+        self._remove_subscription_trade_ticks(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_trade_ticks(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `TradeTick` data for the given instrument ID.
+    cpdef void unsubscribe_bars(self, UnsubscribeBars command):
+        Condition.not_none(command.bar_type, "bar_type")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_trade_ticks(instrument_id)
+        self._remove_subscription_bars(command.bar_type)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_bars(self, BarType bar_type) except *:
-        """
-        Unsubscribe from `Bar` data for the given bar type.
+    cpdef void unsubscribe_instrument_status(self, UnsubscribeInstrumentStatus command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        bar_type : BarType
-            The bar type to unsubscribe from.
-
-        """
-        Condition.not_none(bar_type, "bar_type")
-
-        self._remove_subscription_bars(bar_type)
+        self._remove_subscription_instrument_status(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_instrument_status_updates(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `InstrumentStatusUpdates` data for the given instrument ID.
+    cpdef void unsubscribe_instrument_close(self, UnsubscribeInstrumentClose command):
+        Condition.not_none(command.instrument_id, "instrument_id")
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to unsubscribe from.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-
-        self._remove_subscription_instrument_status_updates(instrument_id)
+        self._remove_subscription_instrument_close(command.instrument_id)
         # Do nothing else for backtest
 
-    cpdef void unsubscribe_instrument_close_prices(self, InstrumentId instrument_id) except *:
-        """
-        Unsubscribe from `InstrumentClosePrice` data for the given instrument ID.
+# -- REQUESTS -------------------------------------------------------------------------------------
 
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument to unsubscribe from.
+    cpdef void request_instrument(self, RequestInstrument request):
+        cdef Instrument instrument = self._cache.instrument(request.instrument_id)
+        if instrument is None:
+            self._log.error(f"Cannot find instrument for {request.instrument_id}")
+            return
 
-        """
-        Condition.not_none(instrument_id, "instrument_id")
+        self._handle_instrument(instrument, request.id, request.params)
 
-        self._remove_subscription_instrument_close_prices(instrument_id)
+    cpdef void request_instruments(self, RequestInstruments request):
+        cdef list instruments = self._cache.instruments(request.venue)
+        if not instruments:
+            self._log.error(f"Cannot find instruments")
+            return
+
+        self._handle_instruments(request.venue, instruments, request.id, request.params)
+
+    cpdef void request_order_book_snapshot(self, RequestOrderBookSnapshot request):
         # Do nothing else for backtest
+        pass
 
-# -- REQUESTS --------------------------------------------------------------------------------------
-
-    cpdef void request_quote_ticks(
-        self,
-        InstrumentId instrument_id,
-        datetime from_datetime,  # Can be None
-        datetime to_datetime,    # Can be None
-        int limit,
-        UUID4 correlation_id,
-    ) except *:
-        """
-        Request historical quote ticks for the given parameters.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument ID for the request.
-        from_datetime : datetime, optional
-            The specified from datetime for the data.
-        to_datetime : datetime, optional
-            The specified to datetime for the data. If ``None`` then will default
-            to the current datetime.
-        limit : int
-            The limit for the number of returned ticks.
-        correlation_id : UUID4
-            The correlation ID for the request.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-        Condition.not_none(correlation_id, "correlation_id")
-
+    cpdef void request_quote_ticks(self, RequestQuoteTicks request):
         # Do nothing else for backtest
+        pass
 
-    cpdef void request_trade_ticks(
-        self,
-        InstrumentId instrument_id,
-        datetime from_datetime,  # Can be None
-        datetime to_datetime,    # Can be None
-        int limit,
-        UUID4 correlation_id,
-    ) except *:
-        """
-        Request historical trade ticks for the given parameters.
-
-        Parameters
-        ----------
-        instrument_id : InstrumentId
-            The tick instrument ID for the request.
-        from_datetime : datetime, optional
-            The specified from datetime for the data.
-        to_datetime : datetime, optional
-            The specified to datetime for the data. If ``None`` then will default
-            to the current datetime.
-        limit : int
-            The limit for the number of returned ticks.
-        correlation_id : UUID4
-            The correlation ID for the request.
-
-        """
-        Condition.not_none(instrument_id, "instrument_id")
-        Condition.not_negative_int(limit, "limit")
-        Condition.not_none(correlation_id, "correlation_id")
-
+    cpdef void request_trade_ticks(self, RequestTradeTicks request):
         # Do nothing else for backtest
+        pass
 
-    cpdef void request_bars(
-        self,
-        BarType bar_type,
-        datetime from_datetime,  # Can be None
-        datetime to_datetime,    # Can be None
-        int limit,
-        UUID4 correlation_id,
-    ) except *:
-        """
-        Request historical bars for the given parameters from the data engine.
-
-        Parameters
-        ----------
-        bar_type : BarType
-            The bar type for the request.
-        from_datetime : datetime, optional
-            The specified from datetime for the data.
-        to_datetime : datetime, optional
-            The specified to datetime for the data. If ``None`` then will default
-            to the current datetime.
-        limit : int
-            The limit for the number of returned bars.
-        correlation_id : UUID4
-            The correlation ID for the request.
-
-        """
-        Condition.not_none(bar_type, "bar_type")
-        Condition.not_negative_int(limit, "limit")
-        Condition.not_none(correlation_id, "correlation_id")
-
+    cpdef void request_bars(self, RequestBars request):
         # Do nothing else for backtest
+        pass

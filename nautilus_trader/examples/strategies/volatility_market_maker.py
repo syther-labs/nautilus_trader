@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,119 +14,161 @@
 # -------------------------------------------------------------------------------------------------
 
 from decimal import Decimal
-from typing import Dict, Optional, Union
 
-from nautilus_trader.common.logging import LogColor
+import pandas as pd
+
+from nautilus_trader.common.enums import LogColor
+from nautilus_trader.config import PositiveFloat
+from nautilus_trader.config import PositiveInt
+from nautilus_trader.config import StrategyConfig
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.message import Event
 from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.model.data.bar import Bar
-from nautilus_trader.model.data.bar import BarType
-from nautilus_trader.model.data.tick import QuoteTick
-from nautilus_trader.model.data.tick import TradeTick
+from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.events.order import OrderFilled
+from nautilus_trader.model.enums import TriggerType
+from nautilus_trader.model.events import OrderFilled
+from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.instruments.base import Instrument
-from nautilus_trader.model.orderbook.book import OrderBook
-from nautilus_trader.model.orderbook.data import OrderBookDelta
-from nautilus_trader.model.orders.limit import LimitOrder
-from nautilus_trader.trading.config import TradingStrategyConfig
-from nautilus_trader.trading.strategy import TradingStrategy
+from nautilus_trader.model.instruments import Instrument
+from nautilus_trader.model.orders import LimitOrder
+from nautilus_trader.trading.strategy import Strategy
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
 # *** IT IS NOT INTENDED TO BE USED TO TRADE LIVE WITH REAL MONEY. ***
 
 
-class VolatilityMarketMakerConfig(TradingStrategyConfig):
+class VolatilityMarketMakerConfig(StrategyConfig, frozen=True):
     """
     Configuration for ``VolatilityMarketMaker`` instances.
 
+    Parameters
+    ----------
     instrument_id : InstrumentId
         The instrument ID for the strategy.
     bar_type : BarType
         The bar type for the strategy.
-    atr_period : int
+    atr_period : PositiveInt
         The period for the ATR indicator.
-    atr_multiple : float
+    atr_multiple : PositiveFloat
         The ATR multiple for bracketing limit orders.
     trade_size : Decimal
         The position size per trade.
     order_id_tag : str
         The unique order ID tag for the strategy. Must be unique
         amongst all running strategies for a particular trader ID.
-    oms_type : OMSType
-        The order management system type for the strategy. This will determine
-        how the `ExecutionEngine` handles position IDs (see docs).
+    emulation_trigger : str, default 'NO_TRIGGER'
+        The emulation trigger for submitting emulated orders.
+        If ``None`` then orders will not be emulated.
+    client_id : ClientId, optional
+        The custom client ID for data and execution.
+        For example if you have multiple clients for Binance you might use 'BINANCE-SPOT'.
+
     """
 
-    instrument_id: str
-    bar_type: str
-    atr_period: int
-    atr_multiple: float
+    instrument_id: InstrumentId
+    bar_type: BarType
+    atr_period: PositiveInt
+    atr_multiple: PositiveFloat
     trade_size: Decimal
+    emulation_trigger: str = "NO_TRIGGER"
+    client_id: ClientId | None = None
 
 
-class VolatilityMarketMaker(TradingStrategy):
+class VolatilityMarketMaker(Strategy):
     """
-    A very dumb market maker which brackets the current market based on
-    volatility measured by an ATR indicator.
+    A very dumb market maker which brackets the current market based on volatility
+    measured by an ATR indicator.
 
-    Cancels all orders and flattens all positions on stop.
+    Cancels all orders and closes all positions on stop.
 
     Parameters
     ----------
     config : VolatilityMarketMakerConfig
         The configuration for the instance.
+
     """
 
-    def __init__(self, config: VolatilityMarketMakerConfig):
+    def __init__(self, config: VolatilityMarketMakerConfig) -> None:
         super().__init__(config)
 
-        # Configuration
-        self.instrument_id = InstrumentId.from_str(config.instrument_id)
-        self.bar_type = BarType.from_str(config.bar_type)
-        self.trade_size = Decimal(config.trade_size)
-        self.atr_multiple = config.atr_multiple
+        self.instrument: Instrument | None = None  # Initialized in on_start
+        self.client_id = config.client_id
 
         # Create the indicators for the strategy
         self.atr = AverageTrueRange(config.atr_period)
 
-        self.instrument: Optional[Instrument] = None  # Initialized in on_start
-
         # Users order management variables
-        self.buy_order: Union[LimitOrder, None] = None
-        self.sell_order: Union[LimitOrder, None] = None
+        self.buy_order: LimitOrder | None = None
+        self.sell_order: LimitOrder | None = None
 
-    def on_start(self):
-        """Actions to be performed on strategy start."""
-        self.instrument = self.cache.instrument(self.instrument_id)
+    def on_start(self) -> None:
+        """
+        Actions to be performed on strategy start.
+        """
+        self.instrument = self.cache.instrument(self.config.instrument_id)
         if self.instrument is None:
-            self.log.error(f"Could not find instrument for {self.instrument_id}")
+            self.log.error(f"Could not find instrument for {self.config.instrument_id}")
             self.stop()
             return
 
         # Register the indicators for updating
-        self.register_indicator_for_bars(self.bar_type, self.atr)
+        self.register_indicator_for_bars(self.config.bar_type, self.atr)
 
         # Get historical data
-        self.request_bars(self.bar_type)
+        self.request_bars(self.config.bar_type, client_id=self.client_id)
 
         # Subscribe to live data
-        self.subscribe_bars(self.bar_type)
-        self.subscribe_quote_ticks(self.instrument_id)
-        # self.subscribe_trade_ticks(self.instrument_id)
-        # self.subscribe_order_book_deltas(self.instrument_id)
-        # self.subscribe_ticker(self.instrument_id)  # For debugging
-        # self.subscribe_order_book_deltas(self.instrument_id, depth=20)  # For debugging
-        # self.subscribe_order_book_snapshots(self.instrument_id, depth=20)  # For debugging
+        self.subscribe_bars(self.config.bar_type, client_id=self.client_id)
+        self.subscribe_quote_ticks(self.config.instrument_id, client_id=self.client_id)
+        self.subscribe_trade_ticks(self.config.instrument_id, client_id=self.client_id)
+        # self.subscribe_order_book_deltas(self.config.instrument_id, client_id=self.client_id)  # For debugging
+        # self.subscribe_order_book_at_interval(
+        #     self.config.instrument_id,
+        #     depth=20,
+        #     interval_ms=1000,
+        #     client_id=self.client_id,
+        # )  # For debugging
 
-    def on_instrument(self, instrument: Instrument):
+        # self.subscribe_data(
+        #     data_type=DataType(
+        #         BinanceTicker,
+        #         metadata={"instrument_id": self.instrument.id},
+        #     ),
+        #     client_id=self.client_id,
+        # )
+
+        # self.subscribe_data(
+        #     data_type=DataType(
+        #         BinanceFuturesMarkPriceUpdate,
+        #         metadata={"instrument_id": self.instrument.id},
+        #     ),
+        #     client_id=ClientId("BINANCE"),
+        # )
+
+    def on_data(self, data: Data) -> None:
         """
-        Actions to be performed when the strategy is running and receives an
-        instrument.
+        Actions to be performed when the strategy is running and receives data.
+
+        Parameters
+        ----------
+        data : Data
+            The data received.
+
+        """
+        # For debugging (must add a subscription)
+        self.log.info(repr(data), LogColor.CYAN)
+
+    def on_instrument(self, instrument: Instrument) -> None:
+        """
+        Actions to be performed when the strategy is running and receives an instrument.
 
         Parameters
         ----------
@@ -134,9 +176,10 @@ class VolatilityMarketMaker(TradingStrategy):
             The instrument received.
 
         """
-        pass
+        # For debugging (must add a subscription)
+        # self.log.info(repr(instrument), LogColor.CYAN)
 
-    def on_order_book(self, order_book: OrderBook):
+    def on_order_book(self, order_book: OrderBook) -> None:
         """
         Actions to be performed when the strategy is running and receives an order book.
 
@@ -146,36 +189,37 @@ class VolatilityMarketMaker(TradingStrategy):
             The order book received.
 
         """
-        # self.log.info(str(order_book))  # For debugging (must add a subscription)
-        pass
+        # For debugging (must add a subscription)
+        self.log.info(repr(order_book), LogColor.CYAN)
 
-    def on_order_book_delta(self, delta: OrderBookDelta):
+    def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
         """
-        Actions to be performed when the strategy is running and receives an order book delta.
+        Actions to be performed when the strategy is running and receives order book
+        deltas.
 
         Parameters
         ----------
-        delta : OrderBookDelta
-            The order book delta received.
+        deltas : OrderBookDeltas
+            The order book deltas received.
 
         """
-        # self.log.info(str(delta), LogColor.GREEN)  # For debugging (must add a subscription)
-        pass
+        # For debugging (must add a subscription)
+        self.log.info(repr(deltas), LogColor.CYAN)
 
-    def on_quote_tick(self, tick: QuoteTick):
+    def on_quote_tick(self, tick: QuoteTick) -> None:
         """
         Actions to be performed when the strategy is running and receives a quote tick.
 
         Parameters
         ----------
         tick : QuoteTick
-            The quote tick received.
+            The tick received.
 
         """
-        # self.log.info(f"Received {repr(tick)}")  # For debugging (must add a subscription)
-        pass
+        # For debugging (must add a subscription)
+        self.log.info(repr(tick), LogColor.CYAN)
 
-    def on_trade_tick(self, tick: TradeTick):
+    def on_trade_tick(self, tick: TradeTick) -> None:
         """
         Actions to be performed when the strategy is running and receives a trade tick.
 
@@ -185,10 +229,10 @@ class VolatilityMarketMaker(TradingStrategy):
             The tick received.
 
         """
-        # self.log.info(f"Received {repr(tick)}")  # For debugging (must add a subscription)
-        pass
+        # For debugging (must add a subscription)
+        self.log.info(repr(tick), LogColor.CYAN)
 
-    def on_bar(self, bar: Bar):
+    def on_bar(self, bar: Bar) -> None:
         """
         Actions to be performed when the strategy is running and receives a bar.
 
@@ -198,80 +242,100 @@ class VolatilityMarketMaker(TradingStrategy):
             The bar received.
 
         """
-        self.log.info(f"Received {repr(bar)}")
+        self.log.info(repr(bar), LogColor.CYAN)
+
+        if not self.instrument:
+            self.log.error("No instrument loaded.")
+            return
 
         # Check if indicators ready
         if not self.indicators_initialized():
             self.log.info(
-                f"Waiting for indicators to warm up " f"[{self.cache.bar_count(self.bar_type)}]...",
+                f"Waiting for indicators to warm up [{self.cache.bar_count(self.config.bar_type)}]",
                 color=LogColor.BLUE,
             )
             return  # Wait for indicators to warm up...
 
-        last: QuoteTick = self.cache.quote_tick(self.instrument_id)
+        last: QuoteTick = self.cache.quote_tick(self.config.instrument_id)
         if last is None:
-            self.log.info("No quotes yet...")
+            self.log.info("No quotes yet")
             return
 
         # Maintain buy orders
-        if self.buy_order and self.buy_order.is_open:
+        if self.buy_order and (self.buy_order.is_emulated or self.buy_order.is_open):
+            # price: Decimal = last.bid_price - (self.atr.value * self.config.atr_multiple)
+            # self.modify_order(
+            #     order=self.buy_order,
+            #     price=self.instrument.make_price(price),
+            # )
+            # return
             self.cancel_order(self.buy_order)
         self.create_buy_order(last)
 
         # Maintain sell orders
-        if self.sell_order and self.sell_order.is_open:
+        if self.sell_order and (self.sell_order.is_emulated or self.sell_order.is_open):
+            # price = last.ask_price + (self.atr.value * self.config.atr_multiple)
+            # self.modify_order(
+            #     order=self.sell_order,
+            #     price=self.instrument.make_price(price),
+            # )
+            # return
             self.cancel_order(self.sell_order)
         self.create_sell_order(last)
 
-    def create_buy_order(self, last: QuoteTick):
+    def create_buy_order(self, last: QuoteTick) -> None:
         """
         Market maker simple buy limit method (example).
         """
-        price: Decimal = last.bid - (self.atr.value * self.atr_multiple)
+        if not self.instrument:
+            self.log.error("No instrument loaded")
+            return
+
+        price: Decimal = last.bid_price - (self.atr.value * self.config.atr_multiple)
         order: LimitOrder = self.order_factory.limit(
-            instrument_id=self.instrument_id,
+            instrument_id=self.config.instrument_id,
             order_side=OrderSide.BUY,
-            quantity=self.instrument.make_qty(self.trade_size),
+            quantity=self.instrument.make_qty(self.config.trade_size),
             price=self.instrument.make_price(price),
-            time_in_force=TimeInForce.GTC,
+            time_in_force=TimeInForce.GTD,
+            expire_time=self.clock.utc_now() + pd.Timedelta(minutes=10),
             post_only=True,  # default value is True
-            # display_qty=self.instrument.make_qty(self.trade_size / 2),  # iceberg
+            # display_qty=self.instrument.make_qty(self.config.trade_size / 2),  # iceberg
+            emulation_trigger=TriggerType[self.config.emulation_trigger],
         )
 
         self.buy_order = order
-        self.submit_order(order)
+        self.submit_order(order, client_id=self.client_id)
+        # order_list = self.order_factory.create_list([order])
+        # self.submit_order_list(order_list)
 
-    def create_sell_order(self, last: QuoteTick):
+    def create_sell_order(self, last: QuoteTick) -> None:
         """
         Market maker simple sell limit method (example).
         """
-        price: Decimal = last.ask + (self.atr.value * self.atr_multiple)
+        if not self.instrument:
+            self.log.error("No instrument loaded")
+            return
+
+        price: Decimal = last.ask_price + (self.atr.value * self.config.atr_multiple)
         order: LimitOrder = self.order_factory.limit(
-            instrument_id=self.instrument_id,
+            instrument_id=self.config.instrument_id,
             order_side=OrderSide.SELL,
-            quantity=self.instrument.make_qty(self.trade_size),
+            quantity=self.instrument.make_qty(self.config.trade_size),
             price=self.instrument.make_price(price),
-            time_in_force=TimeInForce.GTC,
+            time_in_force=TimeInForce.GTD,
+            expire_time=self.clock.utc_now() + pd.Timedelta(minutes=10),
             post_only=True,  # default value is True
-            # display_qty=self.instrument.make_qty(self.trade_size / 2),  # iceberg
+            # display_qty=self.instrument.make_qty(self.config.trade_size / 2),  # iceberg
+            emulation_trigger=TriggerType[self.config.emulation_trigger],
         )
 
         self.sell_order = order
-        self.submit_order(order)
+        self.submit_order(order, client_id=self.client_id)
+        # order_list = self.order_factory.create_list([order])
+        # self.submit_order_list(order_list, client_id=self.client_id)
 
-    def on_data(self, data: Data):
-        """
-        Actions to be performed when the strategy is running and receives generic data.
-
-        Parameters
-        ----------
-        data : Data
-            The data received.
-
-        """
-        pass
-
-    def on_event(self, event: Event):
+    def on_event(self, event: Event) -> None:
         """
         Actions to be performed when the strategy is running and receives an event.
 
@@ -281,39 +345,53 @@ class VolatilityMarketMaker(TradingStrategy):
             The event received.
 
         """
-        last: QuoteTick = self.cache.quote_tick(self.instrument_id)
+        last: QuoteTick = self.cache.quote_tick(self.config.instrument_id)
         if last is None:
-            self.log.info("No quotes yet...")
+            self.log.info("No quotes yet")
             return
 
-        # If order filled then replace order at atr multiple distance from the market
+        # If order filled then replace order at ATR multiple distance from the market
         if isinstance(event, OrderFilled):
-            if event.order_side == OrderSide.BUY:
+            if self.buy_order and event.order_side == OrderSide.BUY:
                 if self.buy_order.is_closed:
                     self.create_buy_order(last)
-            elif event.order_side == OrderSide.SELL:
-                if self.sell_order.is_closed:
-                    self.create_sell_order(last)
+            elif (
+                self.sell_order and event.order_side == OrderSide.SELL and self.sell_order.is_closed
+            ):
+                self.create_sell_order(last)
 
-    def on_stop(self):
+    def on_stop(self) -> None:
         """
         Actions to be performed when the strategy is stopped.
         """
-        self.cancel_all_orders(self.instrument_id)
-        self.flatten_all_positions(self.instrument_id)
+        self.cancel_all_orders(self.config.instrument_id, client_id=self.client_id)
+
+        # # Uncomment to test individual cancels
+        # for order in self.cache.orders_open(instrument_id=self.config.instrument_id):
+        #     self.cancel_order(order)
+
+        # # Uncomment to test batch cancel
+        # open_orders = self.cache.orders_open(instrument_id=self.config.instrument_id)
+        # if open_orders:
+        #     self.cancel_orders(open_orders, client_id=self.client_id)
+
+        self.close_all_positions(self.config.instrument_id, client_id=self.client_id)
 
         # Unsubscribe from data
-        self.unsubscribe_bars(self.bar_type)
-        self.unsubscribe_quote_ticks(self.instrument_id)
+        self.unsubscribe_bars(self.config.bar_type, client_id=self.client_id)
+        self.unsubscribe_quote_ticks(self.config.instrument_id, client_id=self.client_id)
+        self.unsubscribe_trade_ticks(self.config.instrument_id, client_id=self.client_id)
+        # self.unsubscribe_order_book_deltas(self.config.instrument_id, client_id=self.client_id)  # For debugging
+        # self.unsubscribe_order_book_at_interval(self.config.instrument_id, client_id=self.client_id)  # For debugging
 
-    def on_reset(self):
+    def on_reset(self) -> None:
         """
         Actions to be performed when the strategy is reset.
         """
         # Reset indicators here
         self.atr.reset()
 
-    def on_save(self) -> Dict[str, bytes]:
+    def on_save(self) -> dict[str, bytes]:
         """
         Actions to be performed when the strategy is saved.
 
@@ -327,7 +405,7 @@ class VolatilityMarketMaker(TradingStrategy):
         """
         return {}
 
-    def on_load(self, state: Dict[str, bytes]):
+    def on_load(self, state: dict[str, bytes]) -> None:
         """
         Actions to be performed when the strategy is loaded.
 
@@ -339,13 +417,11 @@ class VolatilityMarketMaker(TradingStrategy):
             The strategy state dictionary.
 
         """
-        pass
 
-    def on_dispose(self):
+    def on_dispose(self) -> None:
         """
         Actions to be performed when the strategy is disposed.
 
         Cleanup any resources used by the strategy here.
 
         """
-        pass

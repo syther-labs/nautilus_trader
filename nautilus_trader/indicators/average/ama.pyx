@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -16,12 +16,13 @@
 from libc.math cimport pow
 
 from nautilus_trader.core.correctness cimport Condition
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.indicators.average.moving_average cimport MovingAverage
 from nautilus_trader.indicators.efficiency_ratio cimport EfficiencyRatio
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class AdaptiveMovingAverage(MovingAverage):
@@ -41,7 +42,7 @@ cdef class AdaptiveMovingAverage(MovingAverage):
     period_alpha_slow : int
         The period for the slow smoothing constant (> 0 < alpha_fast).
     price_type : PriceType
-        The specified price type for extracting values from quote ticks.
+        The specified price type for extracting values from quotes.
     """
 
     def __init__(
@@ -54,7 +55,7 @@ cdef class AdaptiveMovingAverage(MovingAverage):
         Condition.positive_int(period_er, "period_er")
         Condition.positive_int(period_alpha_fast, "period_alpha_fast")
         Condition.positive_int(period_alpha_slow, "period_alpha_slow")
-        Condition.true(period_alpha_slow > period_alpha_fast, "period_alpha_slow was <= period_alpha_fast")
+        Condition.is_true(period_alpha_slow > period_alpha_fast, "period_alpha_slow was <= period_alpha_fast")
 
         params = [
             period_er,
@@ -66,14 +67,14 @@ cdef class AdaptiveMovingAverage(MovingAverage):
         self.period_er = period_er
         self.period_alpha_fast = period_alpha_fast
         self.period_alpha_slow = period_alpha_slow
-        self.alpha_fast = 2. / (float(period_alpha_fast) + 1.)
-        self.alpha_slow = 2. / (float(period_alpha_slow) + 1.)
+        self.alpha_fast = 2.0 / (float(period_alpha_fast) + 1.0)
+        self.alpha_slow = 2.0 / (float(period_alpha_slow) + 1.0)
         self.alpha_diff = self.alpha_fast - self.alpha_slow
         self._efficiency_ratio = EfficiencyRatio(self.period_er)
         self._prior_value = 0
         self.value = 0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the indicator with the given quote tick.
 
@@ -85,9 +86,10 @@ cdef class AdaptiveMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.extract_price(self.price_type).as_double())
+        cdef Price price = tick.extract_price(self.price_type)
+        self.update_raw(Price.raw_to_f64_c(price._mem.raw))
 
-    cpdef void handle_trade_tick(self, TradeTick tick) except *:
+    cpdef void handle_trade_tick(self, TradeTick tick):
         """
         Update the indicator with the given trade tick.
 
@@ -99,9 +101,9 @@ cdef class AdaptiveMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.price.as_double())
+        self.update_raw(Price.raw_to_f64_c(tick._mem.price.raw))
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -115,7 +117,7 @@ cdef class AdaptiveMovingAverage(MovingAverage):
 
         self.update_raw(bar.close.as_double())
 
-    cpdef void update_raw(self, double value) except *:
+    cpdef void update_raw(self, double value):
         """
         Update the indicator with the given raw value.
 
@@ -140,6 +142,6 @@ cdef class AdaptiveMovingAverage(MovingAverage):
 
         self._increment_count()
 
-    cpdef void _reset_ma(self) except *:
+    cpdef void _reset_ma(self):
         self._efficiency_ratio.reset()
         self._prior_value = 0

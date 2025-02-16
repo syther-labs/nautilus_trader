@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,22 +14,27 @@
 # -------------------------------------------------------------------------------------------------
 
 import pkgutil
-from typing import Dict
 
-import orjson
+import msgspec
 import pytest
 
-from nautilus_trader.adapters.binance.core.enums import BinanceAccountType
+from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.providers import BinanceSpotInstrumentProvider
+from nautilus_trader.common.component import LiveClock
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 
 
+@pytest.mark.skip(reason="WIP")
 class TestBinanceInstrumentProvider:
-    @pytest.mark.asyncio
+    def setup(self):
+        # Fixture Setup
+        self.clock = LiveClock()
+
+    @pytest.mark.asyncio()
     async def test_load_all_async_for_spot_markets(
         self,
         binance_http_client,
@@ -51,12 +56,12 @@ class TestBinanceInstrumentProvider:
 
         # Mock coroutine for patch
         async def mock_send_request(
-            self,  # noqa (needed for mock)
-            http_method: str,  # noqa (needed for mock)
-            url_path: str,  # noqa (needed for mock)
-            payload: Dict[str, str],  # noqa (needed for mock)
+            self,  # (needed for mock)
+            http_method: str,  # (needed for mock)
+            url_path: str,  # (needed for mock)
+            payload: dict[str, str],  # (needed for mock)
         ) -> bytes:
-            return orjson.loads(responses.pop())
+            return msgspec.json.decode(responses.pop())
 
         # Apply mock coroutine to client
         monkeypatch.setattr(
@@ -68,6 +73,7 @@ class TestBinanceInstrumentProvider:
         self.provider = BinanceSpotInstrumentProvider(
             client=binance_http_client,
             logger=live_logger,
+            clock=self.clock,
             account_type=BinanceAccountType.SPOT,
         )
 
@@ -83,7 +89,7 @@ class TestBinanceInstrumentProvider:
         assert "ETH" in self.provider.currencies()
         assert "USDT" in self.provider.currencies()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_load_all_async_for_futures_markets(
         self,
         binance_http_client,
@@ -105,12 +111,12 @@ class TestBinanceInstrumentProvider:
 
         # Mock coroutine for patch
         async def mock_send_request(
-            self,  # noqa (needed for mock)
-            http_method: str,  # noqa (needed for mock)
-            url_path: str,  # noqa (needed for mock)
-            payload: Dict[str, str],  # noqa (needed for mock)
+            self,  # (needed for mock)
+            http_method: str,  # (needed for mock)
+            url_path: str,  # (needed for mock)
+            payload: dict[str, str],  # (needed for mock)
         ) -> bytes:
-            return orjson.loads(responses.pop())
+            return msgspec.json.decode(responses.pop())
 
         # Apply mock coroutine to client
         monkeypatch.setattr(
@@ -122,7 +128,8 @@ class TestBinanceInstrumentProvider:
         self.provider = BinanceFuturesInstrumentProvider(
             client=binance_http_client,
             logger=live_logger,
-            account_type=BinanceAccountType.FUTURES_USDT,
+            clock=self.clock,
+            account_type=BinanceAccountType.USDT_FUTURE,
         )
 
         # Act

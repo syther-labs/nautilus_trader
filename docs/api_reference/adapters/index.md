@@ -10,9 +10,14 @@
    :glob:
    :titlesonly:
    :hidden:
-   
+
    betfair.md
    binance.md
-   ftx.md
-   ib.md
+   bybit.md
+   databento.md
+   dydx.md
+   interactive_brokers.md
+   okx.md
+   polymarket.md
+   tardis.md
 ```

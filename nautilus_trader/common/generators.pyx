@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,11 +13,9 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from datetime import datetime
-
 from cpython.datetime cimport datetime
 
-from nautilus_trader.common.clock cimport Clock
+from nautilus_trader.common.component cimport Clock
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.model.identifiers cimport ClientOrderId
 from nautilus_trader.model.identifiers cimport PositionId
@@ -28,47 +26,42 @@ from nautilus_trader.model.identifiers cimport TraderId
 cdef class IdentifierGenerator:
     """
     Provides a generator for unique ID strings.
+
+    Parameters
+    ----------
+    trader_id : TraderId
+        The ID tag for the trader.
+    clock : Clock
+        The internal clock.
     """
 
     def __init__(self, TraderId trader_id not None, Clock clock not None):
-        """
-        Initialize a new instance of the ``IdentifierGenerator`` class.
-
-        Parameters
-        ----------
-        trader_id : TraderId
-            The ID tag for the trader.
-        clock : Clock
-            The internal clock.
-
-        """
         self._clock = clock
         self._id_tag_trader = trader_id.get_tag()
 
     cdef str _get_datetime_tag(self):
         """
-        Return the datetime tag string for the current time.
+        Return the tag string for the current timestamp (UTC).
 
         Returns
         -------
         str
 
         """
-        cdef datetime utc_now = self._clock.utc_now()
+        cdef datetime now = self._clock.utc_now()
         return (
-            f"{utc_now.year}"
-            f"{utc_now.month:02d}"
-            f"{utc_now.day:02d}"
-            f"-"
-            f"{utc_now.hour:02d}"
-            f"{utc_now.minute:02d}"
-            f"{utc_now.second:02d}"
+            f"{now.year}"
+            f"{now.month:02d}"
+            f"{now.day:02d}-"
+            f"{now.hour:02d}"
+            f"{now.minute:02d}"
+            f"{now.second:02d}"
         )
 
 
 cdef class ClientOrderIdGenerator(IdentifierGenerator):
     """
-    Provides a generator for unique ClientOrderId(s).
+    Provides a generator for unique `ClientOrderId`(s).
 
     Parameters
     ----------
@@ -100,7 +93,7 @@ cdef class ClientOrderIdGenerator(IdentifierGenerator):
         self._id_tag_strategy = strategy_id.get_tag()
         self.count = initial_count
 
-    cpdef void set_count(self, int count) except *:
+    cpdef void set_count(self, int count):
         """
         Set the internal counter to the given count.
 
@@ -131,7 +124,81 @@ cdef class ClientOrderIdGenerator(IdentifierGenerator):
             f"{self.count}",
         )
 
-    cpdef void reset(self) except *:
+    cpdef void reset(self):
+        """
+        Reset the ID generator.
+
+        All stateful fields are reset to their initial value.
+        """
+        self.count = 0
+
+
+cdef class OrderListIdGenerator(IdentifierGenerator):
+    """
+    Provides a generator for unique `OrderListId`(s).
+
+    Parameters
+    ----------
+    trader_id : TraderId
+        The trader ID for the generator.
+    strategy_id : StrategyId
+        The strategy ID for the generator.
+    clock : Clock
+        The clock for the generator.
+    initial_count : int
+        The initial count for the generator.
+
+    Raises
+    ------
+    ValueError
+        If `initial_count` is negative (< 0).
+    """
+
+    def __init__(
+        self,
+        TraderId trader_id not None,
+        StrategyId strategy_id not None,
+        Clock clock not None,
+        int initial_count=0,
+    ):
+        Condition.not_negative_int(initial_count, "initial_count")
+        super().__init__(trader_id, clock)
+
+        self._id_tag_strategy = strategy_id.get_tag()
+        self.count = initial_count
+
+    cpdef void set_count(self, int count):
+        """
+        Set the internal counter to the given count.
+
+        Parameters
+        ----------
+        count : int
+            The count to set.
+
+        """
+        self.count = count
+
+    cpdef OrderListId generate(self):
+        """
+        Return a unique order list ID.
+
+        Returns
+        -------
+        OrderListId
+
+        """
+        self.count += 1
+
+        return OrderListId(
+            f"OL-"
+            f"{self._get_datetime_tag()}-"
+            f"{self._id_tag_trader}-"
+            f"{self._id_tag_strategy}-"
+            f"{self.count}",
+        )
+
+    cpdef void reset(self):
         """
         Reset the ID generator.
 
@@ -153,9 +220,9 @@ cdef class PositionIdGenerator(IdentifierGenerator):
     def __init__(self, TraderId trader_id not None, Clock clock not None):
         super().__init__(trader_id, clock)
 
-        self._counts = {}  # type: dict[StrategyId, int]
+        self._counts: dict[StrategyId, int] = {}
 
-    cpdef void set_count(self, StrategyId strategy_id, int count) except *:
+    cpdef void set_count(self, StrategyId strategy_id, int count):
         """
         Set the internal position count for the given strategy ID.
 
@@ -177,7 +244,7 @@ cdef class PositionIdGenerator(IdentifierGenerator):
 
         self._counts[strategy_id] = count
 
-    cpdef int get_count(self, StrategyId strategy_id) except *:
+    cpdef int get_count(self, StrategyId strategy_id):
         """
         Return the internal position count for the given strategy ID.
 
@@ -204,7 +271,7 @@ cdef class PositionIdGenerator(IdentifierGenerator):
         strategy_id : StrategyId
             The strategy ID associated with the position.
         flipped : bool
-            If the position is being flipped. If True then the generated id
+            If the position is being flipped. If True, then the generated id
             will be appended with 'F'.
 
         Returns
@@ -226,10 +293,10 @@ cdef class PositionIdGenerator(IdentifierGenerator):
             f"{count}{'F' if flipped else ''}",
         )
 
-    cpdef void reset(self) except *:
+    cpdef void reset(self):
         """
         Reset the ID generator.
 
         All stateful fields are reset to their initial value.
         """
-        self._counts = {}  # type: dict[StrategyId, int]
+        self._counts.clear()

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,9 +17,10 @@ from collections import deque
 
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class DonchianChannel(Indicator):
@@ -54,7 +55,7 @@ cdef class DonchianChannel(Indicator):
         self.middle = 0
         self.lower = 0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the indicator with the given ticks high and low prices.
 
@@ -66,9 +67,11 @@ cdef class DonchianChannel(Indicator):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.ask.as_double(), tick.bid.as_double())
+        cdef double ask = Price.raw_to_f64_c(tick._mem.ask_price.raw)
+        cdef double bid = Price.raw_to_f64_c(tick._mem.bid_price.raw)
+        self.update_raw(ask, bid)
 
-    cpdef void handle_trade_tick(self, TradeTick tick) except *:
+    cpdef void handle_trade_tick(self, TradeTick tick):
         """
         Update the indicator with the given ticks price.
 
@@ -80,10 +83,10 @@ cdef class DonchianChannel(Indicator):
         """
         Condition.not_none(tick, "tick")
 
-        cdef double price = tick.price.as_double()
+        cdef double price = Price.raw_to_f64_c(tick._mem.price.raw)
         self.update_raw(price, price)
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -97,7 +100,7 @@ cdef class DonchianChannel(Indicator):
 
         self.update_raw(bar.high.as_double(), bar.low.as_double())
 
-    cpdef void update_raw(self, double high, double low) except *:
+    cpdef void update_raw(self, double high, double low):
         """
         Update the indicator with the given prices.
 
@@ -124,7 +127,7 @@ cdef class DonchianChannel(Indicator):
         self.lower = min(self._lower_prices)
         self.middle = (self.upper + self.lower) / 2
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._upper_prices.clear()
         self._lower_prices.clear()
 

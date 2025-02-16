@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,52 +13,96 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import fsspec
-import pytest
-
+from nautilus_trader.adapters.betfair.data_types import BetfairStartingPrice
+from nautilus_trader.adapters.betfair.data_types import BetfairTicker
 from nautilus_trader.adapters.betfair.data_types import BSPOrderBookDelta
-from nautilus_trader.persistence.catalog import DataCatalog
-from nautilus_trader.persistence.external.core import RawFile
-from nautilus_trader.persistence.external.core import process_raw_file
-from tests.integration_tests.adapters.betfair.test_kit import BetfairTestStubs
-from tests.test_kit import PACKAGE_ROOT
-from tests.test_kit.mocks.data import data_catalog_setup
+from nautilus_trader.core.rust.model import BookAction
+from nautilus_trader.core.rust.model import OrderSide
+from nautilus_trader.model.data import BookOrder
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
+from nautilus_trader.test_kit.mocks.data import setup_catalog
+from tests.integration_tests.adapters.betfair.test_kit import betting_instrument
+from tests.integration_tests.adapters.betfair.test_kit import load_betfair_data
 
 
 class TestBetfairPersistence:
     def setup(self):
-        data_catalog_setup()
-        self.catalog = DataCatalog.from_env()
+        self.catalog = setup_catalog(protocol="memory", path="/catalog")
         self.fs = self.catalog.fs
-        self.reader = BetfairTestStubs.betfair_reader()
+        self.instrument = betting_instrument()
 
     def test_bsp_delta_serialize(self):
         # Arrange
-        bsp_delta = BSPOrderBookDelta.from_dict(
+        bsp_delta = BSPOrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.UPDATE,
+            order=BookOrder(
+                price=Price.from_str("0.990099"),
+                size=Quantity.from_str("60.07"),
+                side=OrderSide.BUY,
+                order_id=1,
+            ),
+            flags=0,
+            sequence=0,
+            ts_event=1635313844283000000,
+            ts_init=1635313844283000000,
+        )
+
+        # Act
+        self.catalog.write_data([bsp_delta, bsp_delta])
+        values = self.catalog.custom_data(BSPOrderBookDelta)
+
+        # Assert
+        assert len(values) == 2
+        assert values[1] == bsp_delta
+
+    def test_betfair_starting_price_to_from_dict(self):
+        # Arrange
+        bsp = BetfairStartingPrice.from_dict(
             {
-                "type": "BSPOrderBookDelta",
-                "instrument_id": "HorseRacing,,31027998,20211027-060000,ODDS,WIN,1.189740277,41465918,0.0.BETFAIR",
-                "book_type": "L2_MBP",
-                "action": "UPDATE",
-                "order_price": 0.990099,
-                "order_size": 60.07,
-                "order_side": "BUY",
-                "order_id": "f7ed1f20-8c1d-40c6-9d63-bd45f7cc0a86",
+                "type": "BetfairStartingPrice",
+                "instrument_id": self.instrument.id.value,
+                "bsp": 1.20,
                 "ts_event": 1635313844283000000,
                 "ts_init": 1635313844283000000,
-            }
+            },
         )
-        values = bsp_delta.to_dict(bsp_delta)
-        assert bsp_delta.from_dict(values) == bsp_delta
-        assert values["type"] == "BSPOrderBookDelta"
 
-    @pytest.mark.skip("compression broken in github ci")
-    def test_bsp_deltas(self):
-        rf = RawFile(
-            open_file=fsspec.open(
-                f"{PACKAGE_ROOT}/data/betfair/1.170258150.bz2", compression="infer"
-            )
+        # Act
+        values = bsp.to_dict(bsp)
+        result = bsp.from_dict(values)
+
+        # Assert
+        assert values["type"] == "BetfairStartingPrice"
+        assert result.bsp == bsp.bsp
+
+    def test_betfair_starting_price_serialization(self):
+        # Arrange
+        bsp = BetfairStartingPrice.from_dict(
+            {
+                "type": "BetfairStartingPrice",
+                "instrument_id": self.instrument.id.value,
+                "bsp": 1.20,
+                "ts_event": 1635313844283000000,
+                "ts_init": 1635313844283000000,
+            },
         )
-        process_raw_file(catalog=self.catalog, raw_file=rf, reader=self.reader)
-        data = self.catalog.query(BSPOrderBookDelta)
-        assert len(data) == 443
+
+        # Act
+        serialized = ArrowSerializer.serialize(bsp)
+        [result] = ArrowSerializer.deserialize(BetfairStartingPrice, serialized)
+
+        # Assert
+        assert result.bsp == bsp.bsp
+
+    def test_query_custom_type(self):
+        # Arrange
+        load_betfair_data(self.catalog)
+
+        # Act
+        data = self.catalog.query(BetfairTicker)
+
+        # Assert
+        assert len(data) == 210

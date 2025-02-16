@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -16,7 +16,7 @@
 from nautilus_trader.indicators.atr cimport AverageTrueRange
 from nautilus_trader.indicators.average.moving_average cimport MovingAverage
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
+from nautilus_trader.model.data cimport Bar
 
 
 cdef class KeltnerChannel(Indicator):
@@ -34,5 +34,5 @@ cdef class KeltnerChannel(Indicator):
     cdef readonly double lower
     """The current value of the lower channel.\n\n:returns: `double`"""
 
-    cpdef void handle_bar(self, Bar bar) except *
-    cpdef void update_raw(self, double high, double low, double close) except *
+    cpdef void handle_bar(self, Bar bar)
+    cpdef void update_raw(self, double high, double low, double close)

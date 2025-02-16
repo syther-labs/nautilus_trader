@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,42 +13,47 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from libc.stdint cimport int64_t
+import cython
 
 
+@cython.auto_pickle(False)
 cdef class Data:
     """
     The abstract base class for all data.
-
-    Parameters
-    ----------
-    ts_event : int64
-        The UNIX timestamp (nanoseconds) when the data event occurred.
-    ts_init : int64
-        The UNIX timestamp (nanoseconds) when the object was initialized.
 
     Warnings
     --------
     This class should not be used directly, but through a concrete subclass.
     """
 
-    def __init__(self, int64_t ts_event, int64_t ts_init):
-        # Design-time invariant: correct ordering of timestamps
-        assert ts_event <= ts_init
-        self.ts_event = ts_event
-        self.ts_init = ts_init
+    @property
+    def ts_event(self) -> int:
+        """
+        UNIX timestamp (nanoseconds) when the data event occurred.
 
-    def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}("
-            f"ts_event={self.ts_event}, "
-            f"ts_init={self.ts_init})"
-        )
+        Returns
+        -------
+        int
+
+        """
+        raise NotImplementedError("abstract property must be implemented")
+
+    @property
+    def ts_init(self) -> int:
+        """
+        UNIX timestamp (nanoseconds) when the object was initialized.
+
+        Returns
+        -------
+        int
+
+        """
+        raise NotImplementedError("abstract property must be implemented")
 
     @classmethod
     def fully_qualified_name(cls) -> str:
         """
-        Return the fully qualified name for the data object.
+        Return the fully qualified name for the `Data` class.
 
         Returns
         -------
@@ -59,4 +64,28 @@ cdef class Data:
         https://www.python.org/dev/peps/pep-3155/
 
         """
-        return cls.__module__ + '.' + cls.__qualname__
+        return cls.__module__ + ':' + cls.__qualname__
+
+    @classmethod
+    def is_signal(cls, str name = "") -> bool:
+        """
+        Determine if the current class is a signal type, optionally checking for a specific signal name.
+
+        Parameters
+        ----------
+        name : str, optional
+            The specific signal name to check.
+            If `name` not provided or if an empty string is passed, the method checks whether the
+            class name indicates a general signal type.
+            If `name` is provided, the method checks if the class name corresponds to that specific signal.
+
+        Returns
+        -------
+        bool
+            True if the class name matches the signal type or the specific signal name, otherwise False.
+
+        """
+        if name == "":
+            return cls.__name__.startswith("Signal")
+
+        return cls.__name__ == f"Signal{name.title()}"

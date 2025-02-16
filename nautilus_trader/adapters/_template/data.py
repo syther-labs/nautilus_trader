@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,17 +13,34 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Optional
 
-import pandas as pd
-
-from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.data.messages import RequestBars
+from nautilus_trader.data.messages import RequestData
+from nautilus_trader.data.messages import RequestInstrument
+from nautilus_trader.data.messages import RequestInstruments
+from nautilus_trader.data.messages import RequestOrderBookSnapshot
+from nautilus_trader.data.messages import RequestQuoteTicks
+from nautilus_trader.data.messages import RequestTradeTicks
+from nautilus_trader.data.messages import SubscribeBars
+from nautilus_trader.data.messages import SubscribeData
+from nautilus_trader.data.messages import SubscribeInstrument
+from nautilus_trader.data.messages import SubscribeInstrumentClose
+from nautilus_trader.data.messages import SubscribeInstruments
+from nautilus_trader.data.messages import SubscribeInstrumentStatus
+from nautilus_trader.data.messages import SubscribeOrderBook
+from nautilus_trader.data.messages import SubscribeQuoteTicks
+from nautilus_trader.data.messages import SubscribeTradeTicks
+from nautilus_trader.data.messages import UnsubscribeBars
+from nautilus_trader.data.messages import UnsubscribeData
+from nautilus_trader.data.messages import UnsubscribeInstrument
+from nautilus_trader.data.messages import UnsubscribeInstrumentClose
+from nautilus_trader.data.messages import UnsubscribeInstruments
+from nautilus_trader.data.messages import UnsubscribeInstrumentStatus
+from nautilus_trader.data.messages import UnsubscribeOrderBook
+from nautilus_trader.data.messages import UnsubscribeQuoteTicks
+from nautilus_trader.data.messages import UnsubscribeTradeTicks
 from nautilus_trader.live.data_client import LiveDataClient
 from nautilus_trader.live.data_client import LiveMarketDataClient
-from nautilus_trader.model.data.bar import BarType
-from nautilus_trader.model.data.base import DataType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 # The 'pragma: no cover' comment excludes a method from test coverage.
@@ -31,7 +48,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 # The reason for their use is to reduce redundant/needless tests which simply
 # assert that a `NotImplementedError` is raised when calling abstract methods.
 # These tests are expensive to maintain (as they must be kept in line with any
-# refactorings), and offer little to no benefit in return. However, the intention
+# refactorings), and offer little to no benefit in return. The intention
 # is for all method implementations to be fully covered by tests.
 
 # *** THESE PRAGMA: NO COVER COMMENTS MUST BE REMOVED IN ANY IMPLEMENTATION. ***
@@ -41,240 +58,266 @@ class TemplateLiveDataClient(LiveDataClient):
     """
     An example of a ``LiveDataClient`` highlighting the overridable abstract methods.
 
-    A live data client general handles non-market or custom data feeds and requests.
+    A live data client generally handles non-market or custom data feeds and requests.
 
     +---------------------------------------+-------------+
     | Method                                | Requirement |
     +---------------------------------------+-------------+
-    | connect                               | required    |
-    | disconnect                            | required    |
+    | _connect                              | required    |
+    | _disconnect                           | required    |
     | reset                                 | optional    |
     | dispose                               | optional    |
     +---------------------------------------+-------------+
-    | subscribe                             | optional    |
-    | unsubscribe                           | optional    |
+    | _subscribe                            | optional    |
+    | _unsubscribe                          | optional    |
     +---------------------------------------+-------------+
-    | request                               | optional    |
+    | _request                              | optional    |
     +---------------------------------------+-------------+
 
     """
 
-    def connect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _connect(self) -> None:
+        raise NotImplementedError(
+            "method `_connect` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def disconnect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _disconnect(self) -> None:
+        raise NotImplementedError(
+            "method `_disconnect` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def reset(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `reset` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def dispose(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `dispose` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- SUBSCRIPTIONS -----------------------------------------------------------------------------
+    # -- SUBSCRIPTIONS ----------------------------------------------------------------------------
 
-    def subscribe(self, data_type: DataType) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe(self, command: SubscribeData) -> None:
+        raise NotImplementedError(
+            "method `_subscribe` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe(self, data_type: DataType) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe(self, command: UnsubscribeData) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- REQUESTS ----------------------------------------------------------------------------------
+    # -- REQUESTS ---------------------------------------------------------------------------------
 
-    def request(self, datatype: DataType, correlation_id: UUID4) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _request(self, request: RequestData) -> None:
+        raise NotImplementedError(
+            "method `_request` must be implemented in the subclass",
+        )  # pragma: no cover
 
 
 class TemplateLiveMarketDataClient(LiveMarketDataClient):
     """
-    An example of a ``LiveMarketDataClient`` highlighting the overridable abstract methods.
+    An example of a ``LiveMarketDataClient`` highlighting the overridable abstract
+    methods.
 
-    A live market data client general handles market data feeds and requests.
+    A live market data client generally handles market data feeds and requests.
 
-    +---------------------------------------+-------------+
-    | Method                                | Requirement |
-    +---------------------------------------+-------------+
-    | connect                               | required    |
-    | disconnect                            | required    |
-    | reset                                 | optional    |
-    | dispose                               | optional    |
-    +---------------------------------------+-------------+
-    | subscribe_instruments                 | optional    |
-    | subscribe_instrument                  | optional    |
-    | subscribe_order_book_deltas           | optional    |
-    | subscribe_order_book_snapshots        | optional    |
-    | subscribe_ticker                      | optional    |
-    | subscribe_quote_ticks                 | optional    |
-    | subscribe_trade_ticks                 | optional    |
-    | subscribe_bars                        | optional    |
-    | subscribe_instrument_status_updates   | optional    |
-    | subscribe_instrument_close_prices     | optional    |
-    | unsubscribe_instruments               | optional    |
-    | unsubscribe_instrument                | optional    |
-    | unsubscribe_order_book_deltas         | optional    |
-    | unsubscribe_order_book_snapshots      | optional    |
-    | unsubscribe_ticker                    | optional    |
-    | unsubscribe_quote_ticks               | optional    |
-    | unsubscribe_trade_ticks               | optional    |
-    | unsubscribe_bars                      | optional    |
-    | unsubscribe_instrument_status_updates | optional    |
-    | unsubscribe_instrument_close_prices   | optional    |
-    +---------------------------------------+-------------+
-    | request_quote_ticks                   | optional    |
-    | request_trade_ticks                   | optional    |
-    | request_bars                          | optional    |
-    +---------------------------------------+-------------+
+    +----------------------------------------+-------------+
+    | Method                                 | Requirement |
+    +----------------------------------------+-------------+
+    | _connect                               | required    |
+    | _disconnect                            | required    |
+    | reset                                  | optional    |
+    | dispose                                | optional    |
+    +----------------------------------------+-------------+
+    | _subscribe (adapter specific types)    | optional    |
+    | _subscribe_instruments                 | optional    |
+    | _subscribe_instrument                  | optional    |
+    | _subscribe_order_book_deltas           | optional    |
+    | _subscribe_order_book_snapshots        | optional    |
+    | _subscribe_quote_ticks                 | optional    |
+    | _subscribe_trade_ticks                 | optional    |
+    | _subscribe_bars                        | optional    |
+    | _subscribe_instrument_status           | optional    |
+    | _subscribe_instrument_close            | optional    |
+    | _unsubscribe (adapter specific types)  | optional    |
+    | _unsubscribe_instruments               | optional    |
+    | _unsubscribe_instrument                | optional    |
+    | _unsubscribe_order_book_deltas         | optional    |
+    | _unsubscribe_order_book_snapshots      | optional    |
+    | _unsubscribe_quote_ticks               | optional    |
+    | _unsubscribe_trade_ticks               | optional    |
+    | _unsubscribe_bars                      | optional    |
+    | _unsubscribe_instrument_status         | optional    |
+    | _unsubscribe_instrument_close          | optional    |
+    +----------------------------------------+-------------+
+    | _request                               | optional    |
+    | _request_instrument                    | optional    |
+    | _request_instruments                   | optional    |
+    | _request_order_book_snapshot           | optional    |
+    | _request_quote_ticks                   | optional    |
+    | _request_trade_ticks                   | optional    |
+    | _request_bars                          | optional    |
+    +----------------------------------------+-------------+
 
     """
 
-    def connect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _connect(self) -> None:
+        raise NotImplementedError(
+            "method `_connect` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def disconnect(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _disconnect(self) -> None:
+        raise NotImplementedError(
+            "method `_disconnect` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def reset(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `reset` must be implemented in the subclass",
+        )  # pragma: no cover
 
     def dispose(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError(
+            "method `dispose` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- SUBSCRIPTIONS -----------------------------------------------------------------------------
+    # -- SUBSCRIPTIONS ----------------------------------------------------------------------------
 
-    def subscribe_instruments(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe(self, command: SubscribeData) -> None:
+        raise NotImplementedError(
+            "method `_subscribe` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_instrument(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_instruments(self, command: SubscribeInstruments) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_instruments` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_order_book_deltas(
-        self,
-        instrument_id: InstrumentId,
-        book_type: BookType,
-        depth: Optional[int] = None,
-        kwargs: dict = None,
-    ) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_instrument(self, command: SubscribeInstrument) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_instrument` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_order_book_snapshots(
-        self,
-        instrument_id: InstrumentId,
-        book_type: BookType,
-        depth: Optional[int] = None,
-        kwargs: dict = None,
-    ) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_order_book_deltas(self, command: SubscribeOrderBook) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_order_book_deltas` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_ticker(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_order_book_snapshots(self, command: SubscribeOrderBook) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_order_book_snapshots` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_quote_ticks` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_trade_ticks(self, command: SubscribeTradeTicks) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_trade_ticks` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_bars(self, bar_type: BarType) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_bars(self, command: SubscribeBars) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_bars` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_instrument_status_updates(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_instrument_status(self, command: SubscribeInstrumentStatus) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_instrument_status` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def subscribe_instrument_close_prices(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _subscribe_instrument_close(self, command: SubscribeInstrumentClose) -> None:
+        raise NotImplementedError(
+            "method `_subscribe_instrument_close` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_instruments(self) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe(self, command: UnsubscribeData) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_instrument(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_instruments(self, command: UnsubscribeInstruments) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_instruments` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_order_book_deltas(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_instrument(self, command: UnsubscribeInstrument) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_instrument` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_order_book_snapshots(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_order_book_deltas` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_ticker(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_order_book_snapshots` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_quote_tick` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_trade_ticks(self, command: UnsubscribeTradeTicks) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_trade_ticks` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_bars(self, bar_type: BarType) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_bars(self, command: UnsubscribeBars) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_bars` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_instrument_status_updates(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_instrument_status(self, command: UnsubscribeInstrumentStatus) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_instrument_status` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def unsubscribe_instrument_close_prices(self, instrument_id: InstrumentId) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _unsubscribe_instrument_close(self, command: UnsubscribeInstrumentClose) -> None:
+        raise NotImplementedError(
+            "method `_unsubscribe_instrument_close` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    # -- REQUESTS ----------------------------------------------------------------------------------
+    # -- REQUESTS ---------------------------------------------------------------------------------
 
-    def request_quote_ticks(
-        self,
-        instrument_id: InstrumentId,
-        from_datetime: pd.Timestamp,
-        to_datetime: pd.Timestamp,
-        limit: int,
-        correlation_id: UUID4,
-    ) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _request(self, request: RequestData) -> None:
+        raise NotImplementedError(
+            "method `_request` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def request_trade_ticks(
-        self,
-        instrument_id: InstrumentId,
-        from_datetime: pd.Timestamp,
-        to_datetime: pd.Timestamp,
-        limit: int,
-        correlation_id: UUID4,
-    ) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _request_instrument(self, request: RequestInstrument) -> None:
+        raise NotImplementedError(
+            "method `_request_instrument` must be implemented in the subclass",
+        )  # pragma: no cover
 
-    def request_bars(
-        self,
-        bar_type: BarType,
-        from_datetime: pd.Timestamp,
-        to_datetime: pd.Timestamp,
-        limit: int,
-        correlation_id: UUID4,
-    ) -> None:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    async def _request_instruments(self, request: RequestInstruments) -> None:
+        raise NotImplementedError(
+            "method `_request_instruments` must be implemented in the subclass",
+        )  # pragma: no cover
+
+    async def _request_order_book_snapshot(self, request: RequestOrderBookSnapshot) -> None:
+        raise NotImplementedError(
+            "method `_request_quote_tick` must be implemented in the subclass",
+        )  # pragma: no cover
+
+    async def _request_quote_ticks(self, request: RequestQuoteTicks) -> None:
+        raise NotImplementedError(
+            "method `_request_quote_tick` must be implemented in the subclass",
+        )  # pragma: no cover
+
+    async def _request_trade_ticks(self, request: RequestTradeTicks) -> None:
+        raise NotImplementedError(
+            "method `_request_trade_ticks` must be implemented in the subclass",
+        )  # pragma: no cover
+
+    async def _request_bars(self, request: RequestBars) -> None:
+        raise NotImplementedError(
+            "method `_request_bars` must be implemented in the subclass",
+        )  # pragma: no cover

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,20 +13,20 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.c_enums.price_type cimport PriceType
 
 
 cdef class MovingAverage(Indicator):
     cdef readonly int period
     """The moving average period.\n\n:returns: `PriceType`"""
     cdef readonly PriceType price_type
-    """The specified price type for extracting values from quote ticks.\n\n:returns: `PriceType`"""
+    """The specified price type for extracting values from quotes.\n\n:returns: `PriceType`"""
     cdef readonly int count
     """The count of inputs received by the indicator.\n\n:returns: `int`"""
     cdef readonly double value
     """The current output value.\n\n:returns: `double`"""
 
-    cpdef void update_raw(self, double value) except *
-    cpdef void _increment_count(self) except *
-    cpdef void _reset_ma(self) except *
+    cpdef void update_raw(self, double value)
+    cpdef void _increment_count(self)
+    cpdef void _reset_ma(self)

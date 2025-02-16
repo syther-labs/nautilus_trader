@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -23,16 +23,17 @@ from nautilus_trader.indicators.average.ma_factory import MovingAverageType
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.core.stats cimport fast_std_with_mean
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class BollingerBands(Indicator):
     """
     A Bollinger Band® is a technical analysis tool defined by a set of
     trend lines plotted two standard deviations (positively and negatively) away
-    from a simple moving average (SMA) of a instrument_id's price, but which can be
+    from a simple moving average (SMA) of an instruments price, which can be
     adjusted to user preferences.
 
     Parameters
@@ -67,11 +68,11 @@ cdef class BollingerBands(Indicator):
         self._ma = MovingAverageFactory.create(period, ma_type)
         self._prices = deque(maxlen=period)
 
-        self.upper = 0
-        self.middle = 0
-        self.lower = 0
+        self.upper = 0.0
+        self.middle = 0.0
+        self.lower = 0.0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the indicator with the given tick.
 
@@ -83,12 +84,12 @@ cdef class BollingerBands(Indicator):
         """
         Condition.not_none(tick, "tick")
 
-        cdef double ask = tick.ask.as_double()
-        cdef double bid = tick.bid.as_double()
-        cdef double mid = (ask + bid / 2)
+        cdef double bid = Price.raw_to_f64_c(tick._mem.bid_price.raw)
+        cdef double ask = Price.raw_to_f64_c(tick._mem.ask_price.raw)
+        cdef double mid = (ask + bid) / 2.0
         self.update_raw(ask, bid, mid)
 
-    cpdef void handle_trade_tick(self, TradeTick tick) except *:
+    cpdef void handle_trade_tick(self, TradeTick tick):
         """
         Update the indicator with the given tick.
 
@@ -100,10 +101,10 @@ cdef class BollingerBands(Indicator):
         """
         Condition.not_none(tick, "tick")
 
-        cdef double price = tick.price.as_double()
+        cdef double price = Price.raw_to_f64_c(tick._mem.price.raw)
         self.update_raw(price, price, price)
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -121,7 +122,7 @@ cdef class BollingerBands(Indicator):
             bar.close.as_double(),
         )
 
-    cpdef void update_raw(self, double high, double low, double close) except *:
+    cpdef void update_raw(self, double high, double low, double close):
         """
         Update the indicator with the given prices.
 
@@ -136,7 +137,7 @@ cdef class BollingerBands(Indicator):
 
         """
         # Add data to queues
-        cdef double typical = (high + low + close) / 3
+        cdef double typical = (high + low + close) / 3.0
 
         self._prices.append(typical)
         self._ma.update_raw(typical)
@@ -158,10 +159,10 @@ cdef class BollingerBands(Indicator):
         self.middle = self._ma.value
         self.lower = self._ma.value - (self.k * std)
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._ma.reset()
         self._prices.clear()
 
-        self.upper = 0
-        self.middle = 0
-        self.lower = 0
+        self.upper = 0.0
+        self.middle = 0.0
+        self.lower = 0.0

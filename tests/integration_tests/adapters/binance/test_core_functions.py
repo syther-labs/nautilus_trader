@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,9 +15,9 @@
 
 import pytest
 
-from nautilus_trader.adapters.binance.core.enums import BinanceAccountType
-from nautilus_trader.adapters.binance.core.functions import convert_symbols_list_to_json_array
-from nautilus_trader.adapters.binance.core.functions import format_symbol
+from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
+from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
+from nautilus_trader.adapters.binance.common.symbol import BinanceSymbols
 
 
 class TestBinanceCoreFunctions:
@@ -26,7 +26,7 @@ class TestBinanceCoreFunctions:
         symbol = "ethusdt-perp"
 
         # Act
-        result = format_symbol(symbol)
+        result = BinanceSymbol(symbol)
 
         # Assert
         assert result == "ETHUSDT"
@@ -36,18 +36,19 @@ class TestBinanceCoreFunctions:
         symbols = ["BTCUSDT", "ETHUSDT-PERP", " XRDUSDT"]
 
         # Act
-        result = convert_symbols_list_to_json_array(symbols)
+        result = BinanceSymbols(symbols)
 
         # Assert
         assert result == '["BTCUSDT","ETHUSDT","XRDUSDT"]'
 
     @pytest.mark.parametrize(
-        "account_type, expected",
+        ("account_type", "expected"),
         [
             [BinanceAccountType.SPOT, True],
             [BinanceAccountType.MARGIN, False],
-            [BinanceAccountType.FUTURES_USDT, False],
-            [BinanceAccountType.FUTURES_COIN, False],
+            [BinanceAccountType.ISOLATED_MARGIN, False],
+            [BinanceAccountType.USDT_FUTURE, False],
+            [BinanceAccountType.COIN_FUTURE, False],
         ],
     )
     def test_binance_account_type_is_spot(self, account_type, expected):
@@ -55,12 +56,13 @@ class TestBinanceCoreFunctions:
         assert account_type.is_spot == expected
 
     @pytest.mark.parametrize(
-        "account_type, expected",
+        ("account_type", "expected"),
         [
             [BinanceAccountType.SPOT, False],
             [BinanceAccountType.MARGIN, True],
-            [BinanceAccountType.FUTURES_USDT, False],
-            [BinanceAccountType.FUTURES_COIN, False],
+            [BinanceAccountType.ISOLATED_MARGIN, True],
+            [BinanceAccountType.USDT_FUTURE, False],
+            [BinanceAccountType.COIN_FUTURE, False],
         ],
     )
     def test_binance_account_type_is_margin(self, account_type, expected):
@@ -68,12 +70,27 @@ class TestBinanceCoreFunctions:
         assert account_type.is_margin == expected
 
     @pytest.mark.parametrize(
-        "account_type, expected",
+        ("account_type", "expected"),
+        [
+            [BinanceAccountType.SPOT, True],
+            [BinanceAccountType.MARGIN, True],
+            [BinanceAccountType.ISOLATED_MARGIN, True],
+            [BinanceAccountType.USDT_FUTURE, False],
+            [BinanceAccountType.COIN_FUTURE, False],
+        ],
+    )
+    def test_binance_account_type_is_spot_or_margin(self, account_type, expected):
+        # Arrange, Act, Assert
+        assert account_type.is_spot_or_margin == expected
+
+    @pytest.mark.parametrize(
+        ("account_type", "expected"),
         [
             [BinanceAccountType.SPOT, False],
             [BinanceAccountType.MARGIN, False],
-            [BinanceAccountType.FUTURES_USDT, True],
-            [BinanceAccountType.FUTURES_COIN, True],
+            [BinanceAccountType.ISOLATED_MARGIN, False],
+            [BinanceAccountType.USDT_FUTURE, True],
+            [BinanceAccountType.COIN_FUTURE, True],
         ],
     )
     def test_binance_account_type_is_futures(self, account_type, expected):

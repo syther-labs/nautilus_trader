@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,24 +14,24 @@
 # -------------------------------------------------------------------------------------------------
 
 from decimal import Decimal
-from typing import Optional
 
-from nautilus_trader.common.logging cimport LogColor
+from nautilus_trader.config import StrategyConfig
+
+from nautilus_trader.common.component cimport LogColor
+from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.core.data cimport Data
 from nautilus_trader.core.message cimport Event
+from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.indicators.average.ema cimport ExponentialMovingAverage
-from nautilus_trader.model.c_enums.order_side cimport OrderSide
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.bar cimport BarType
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.book cimport OrderBook
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport BarType
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.instruments.base cimport Instrument
-from nautilus_trader.model.orderbook.book cimport OrderBook
 from nautilus_trader.model.orders.market cimport MarketOrder
-from nautilus_trader.trading.strategy cimport TradingStrategy
-
-from nautilus_trader.trading.config import TradingStrategyConfig
+from nautilus_trader.trading.strategy cimport Strategy
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
@@ -43,89 +43,92 @@ from nautilus_trader.trading.config import TradingStrategyConfig
 # raised exceptions to bubble up (otherwise they are ignored)
 
 
-class EMACrossConfig(TradingStrategyConfig):
+class EMACrossConfig(StrategyConfig, frozen=True):
     """
     Configuration for ``EMACross`` instances.
 
+    Parameters
+    ----------
     instrument_id : InstrumentId
         The instrument ID for the strategy.
     bar_type : BarType
         The bar type for the strategy.
-    fast_ema_period : int
-        The fast EMA period.
-    slow_ema_period : int
-        The slow EMA period.
-    trade_size : str
-        The position size per trade (interpreted as Decimal).
-    order_id_tag : str
-        The unique order ID tag for the strategy. Must be unique
-        amongst all running strategies for a particular trader ID.
-    oms_type : OMSType
-        The order management system type for the strategy. This will determine
-        how the `ExecutionEngine` handles position IDs (see docs).
+    trade_size : Decimal
+        The position size per trade.
+    fast_ema_period : int, default 10
+        The fast EMA period. Must be positive and less than `slow_ema_period`.
+    slow_ema_period : int, default 20
+        The slow EMA period. Must be positive and less than `fast_ema_period`.
+
     """
 
-    instrument_id: str
-    bar_type: str
+    instrument_id: InstrumentId
+    bar_type: BarType
+    trade_size: Decimal
     fast_ema_period: int = 10
     slow_ema_period: int = 20
-    trade_size: Decimal
 
 
-cdef class EMACross(TradingStrategy):
+cdef class EMACross(Strategy):
     """
     A simple moving average cross example strategy.
 
     When the fast EMA crosses the slow EMA then enter a position at the market
     in that direction.
 
-    Cancels all orders and flattens all positions on stop.
+    Cancels all orders and closes all positions on stop.
 
     Parameters
     ----------
     config : EMACrossConfig
         The configuration for the instance.
+
+    Raises
+    ------
+    ValueError
+        If `config.fast_ema_period` is not less than `config.slow_ema_period`.
     """
-    # Backing fields are necessary
+    # Backing fields are necessary for Cython
     cdef InstrumentId instrument_id
     cdef BarType bar_type
     cdef object trade_size
     cdef ExponentialMovingAverage fast_ema
     cdef ExponentialMovingAverage slow_ema
 
-    def __init__(self, config not None: EMACrossConfig):
+    def __init__(self, config not None: EMACrossConfig) -> None:
+        Condition.is_true(
+            config.fast_ema_period < config.slow_ema_period,
+            "{config.fast_ema_period=} must be less than {config.slow_ema_period=}",
+        )
         super().__init__(config)
 
-        # Configuration
-        self.instrument_id = InstrumentId.from_str_c(config.instrument_id)
-        self.bar_type = BarType.from_str_c(config.bar_type)
-        self.trade_size = Decimal(config.trade_size)
+        self.instrument: Instrument | None = None  # Initialized in on_start
 
         # Create the indicators for the strategy
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
 
-        self.instrument: Optional[Instrument] = None  # Initialized in on_start
-
-    cpdef void on_start(self) except *:
-        """Actions to be performed on strategy start."""
-        self.instrument = self.cache.instrument(self.instrument_id)
+    cpdef void on_start(self):
+        """
+        Actions to be performed on strategy start.
+        """
+        self.instrument = self.cache.instrument(self.config.instrument_id)
         if self.instrument is None:
-            self.log.error(f"Could not find instrument for {self.instrument_id}")
+            self.log.error(f"Could not find instrument for {self.config.instrument_id}")
             self.stop()
             return
 
         # Register the indicators for updating
-        self.register_indicator_for_bars(self.bar_type, self.fast_ema)
-        self.register_indicator_for_bars(self.bar_type, self.slow_ema)
+        self.register_indicator_for_bars(self.config.bar_type, self.fast_ema)
+        self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
 
         # Get historical data
-        self.request_bars(self.bar_type)
+        self.request_bars(self.config.bar_type)
 
         # Subscribe to live data
-        self.subscribe_bars(self.bar_type)
+        self.subscribe_bars(self.config.bar_type)
 
-    cpdef void on_instrument(self, Instrument instrument) except *:
+    cpdef void on_instrument(self, Instrument instrument):
         """
         Actions to be performed when the strategy is running and receives an
         instrument.
@@ -138,7 +141,7 @@ cdef class EMACross(TradingStrategy):
         """
         pass
 
-    cpdef void on_order_book(self, OrderBook order_book) except *:
+    cpdef void on_order_book(self, OrderBook order_book):
         """
         Actions to be performed when the strategy is running and receives an order book.
 
@@ -151,7 +154,7 @@ cdef class EMACross(TradingStrategy):
         # self.log.info(f"Received {order_book}")  # For debugging (must add a subscription)
         pass
 
-    cpdef void on_quote_tick(self, QuoteTick tick) except *:
+    cpdef void on_quote_tick(self, QuoteTick tick):
         """
         Actions to be performed when the strategy is running and receives a quote tick.
 
@@ -164,7 +167,7 @@ cdef class EMACross(TradingStrategy):
         # self.log.info(f"Received {tick}")  # For debugging (must add a subscription)
         pass
 
-    cpdef void on_trade_tick(self, TradeTick tick) except *:
+    cpdef void on_trade_tick(self, TradeTick tick):
         """
         Actions to be performed when the strategy is running and receives a trade tick.
 
@@ -177,7 +180,7 @@ cdef class EMACross(TradingStrategy):
         # self.log.info(f"Received {tick}")  # For debugging (must add a subscription)
         pass
 
-    cpdef void on_bar(self, Bar bar) except *:
+    cpdef void on_bar(self, Bar bar):
         """
         Actions to be performed when the strategy is running and receives a bar.
 
@@ -192,54 +195,61 @@ cdef class EMACross(TradingStrategy):
         # Check if indicators ready
         if not self.indicators_initialized():
             self.log.info(
-                f"Waiting for indicators to warm up "
-                f"[{self.cache.bar_count(self.bar_type)}]...",
+                f"Waiting for indicators to warm up [{self.cache.bar_count(self.config.bar_type)}]",
                 color=LogColor.BLUE,
             )
             return  # Wait for indicators to warm up...
 
         # BUY LOGIC
         if self.fast_ema.value >= self.slow_ema.value:
-            if self.portfolio.is_flat(self.instrument_id):
+            if self.portfolio.is_flat(self.config.instrument_id):
                 self.buy()
-            elif self.portfolio.is_net_short(self.instrument_id):
-                self.flatten_all_positions(self.instrument_id)
+            elif self.portfolio.is_net_short(self.config.instrument_id):
+                self.close_all_positions(self.config.instrument_id)
                 self.buy()
         # SELL LOGIC
         elif self.fast_ema.value < self.slow_ema.value:
-            if self.portfolio.is_flat(self.instrument_id):
+            if self.portfolio.is_flat(self.config.instrument_id):
                 self.sell()
-            elif self.portfolio.is_net_long(self.instrument_id):
-                self.flatten_all_positions(self.instrument_id)
+            elif self.portfolio.is_net_long(self.config.instrument_id):
+                self.close_all_positions(self.config.instrument_id)
                 self.sell()
 
-    cpdef void buy(self) except *:
+    cpdef void buy(self):
         """
         Users simple buy method (example).
         """
+        if not self.instrument:
+            self.log.error("No instrument loaded")
+            return
+
         cdef MarketOrder order = self.order_factory.market(
-            instrument_id=self.instrument_id,
+            instrument_id=self.config.instrument_id,
             order_side=OrderSide.BUY,
-            quantity=self.instrument.make_qty(self.trade_size),
+            quantity=self.instrument.make_qty(self.config.trade_size),
         )
 
         self.submit_order(order)
 
-    cpdef void sell(self) except *:
+    cpdef void sell(self):
         """
         Users simple sell method (example).
         """
+        if not self.instrument:
+            self.log.error("No instrument loaded")
+            return
+
         cdef MarketOrder order = self.order_factory.market(
-            instrument_id=self.instrument_id,
+            instrument_id=self.config.instrument_id,
             order_side=OrderSide.SELL,
-            quantity=self.instrument.make_qty(self.trade_size),
+            quantity=self.instrument.make_qty(self.config.trade_size),
         )
 
         self.submit_order(order)
 
-    cpdef void on_data(self, Data data) except *:
+    cpdef void on_data(self, data):
         """
-        Actions to be performed when the strategy is running and receives generic data.
+        Actions to be performed when the strategy is running and receives data.
 
         Parameters
         ----------
@@ -249,7 +259,7 @@ cdef class EMACross(TradingStrategy):
         """
         pass
 
-    cpdef void on_event(self, Event event) except *:
+    cpdef void on_event(self, Event event):
         """
         Actions to be performed when the strategy is running and receives an event.
 
@@ -261,15 +271,15 @@ cdef class EMACross(TradingStrategy):
         """
         pass
 
-    cpdef void on_stop(self) except *:
+    cpdef void on_stop(self):
         """
         Actions to be performed when the strategy is stopped.
 
         """
-        self.cancel_all_orders(self.instrument_id)
-        self.flatten_all_positions(self.instrument_id)
+        self.cancel_all_orders(self.config.instrument_id)
+        self.close_all_positions(self.config.instrument_id)
 
-    cpdef void on_reset(self) except *:
+    cpdef void on_reset(self):
         """
         Actions to be performed when the strategy is reset.
         """
@@ -291,7 +301,7 @@ cdef class EMACross(TradingStrategy):
         """
         return {}
 
-    cpdef void on_load(self, dict state) except *:
+    cpdef void on_load(self, dict state):
         """
         Actions to be performed when the strategy is loaded.
 
@@ -305,11 +315,11 @@ cdef class EMACross(TradingStrategy):
         """
         pass
 
-    cpdef void on_dispose(self) except *:
+    cpdef void on_dispose(self):
         """
         Actions to be performed when the strategy is disposed.
 
         Cleanup any resources used by the strategy here.
 
         """
-        self.unsubscribe_bars(self.bar_type)
+        self.unsubscribe_bars(self.config.bar_type)

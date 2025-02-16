@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,275 +13,32 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import dataclasses
-import importlib
+from __future__ import annotations
+
 import sys
-from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any
 
 import pandas as pd
-import pydantic
-from dask.base import tokenize
 
-from nautilus_trader.cache.config import CacheConfig
+from nautilus_trader.common import Environment
+from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import ImportableActorConfig
-from nautilus_trader.core.data import Data
-from nautilus_trader.core.datetime import maybe_dt_to_unix_nanos
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.common.config import resolve_path
+from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.data.config import DataEngineConfig
 from nautilus_trader.execution.config import ExecEngineConfig
-from nautilus_trader.infrastructure.config import CacheDatabaseConfig
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.persistence.config import PersistenceConfig
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.risk.config import RiskEngineConfig
-from nautilus_trader.trading.config import ImportableStrategyConfig
+from nautilus_trader.system.config import NautilusKernelConfig
 
 
-class Partialable:
-    """
-    The abstract base class for all partialable configurations.
-    """
-
-    def fields(self) -> Dict[str, dataclasses.Field]:
-        return {field.name: field for field in dataclasses.fields(self)}
-
-    def missing(self):
-        return [x for x in self.fields() if getattr(self, x) is None]
-
-    def optional_fields(self):
-        for field in self.fields().values():
-            if (
-                hasattr(field.type, "__args__")
-                and len(field.type.__args__) == 2
-                and field.type.__args__[-1] is type(None)  # noqa: E721
-            ):
-                # Check if exactly two arguments exists and one of them are None type
-                yield field.name
-
-    def is_partial(self):
-        return any(self.missing())
-
-    def check(self, ignore=None):
-        optional = tuple(self.optional_fields())
-        missing = [
-            name for name in self.missing() if not (name in (ignore or {}) or name in optional)
-        ]
-        if missing:
-            raise AssertionError(f"Missing fields: {missing}")
-
-    def _check_kwargs(self, kw):
-        for k in kw:
-            assert k in self.fields(), f"Unknown kwarg: {k}"
-
-    def update(self, **kwargs):
-        """Update attributes on this instance."""
-        self._check_kwargs(kwargs)
-        self.__dict__.update(kwargs)
-        return self
-
-    def replace(self, **kwargs):
-        """Return a new instance with some attributes replaced."""
-        return self.__class__(**{**{k: getattr(self, k) for k in self.fields()}, **kwargs})
-
-    def __dask_tokenize__(self):
-        self.__post_init__()  # Ensures token determinism
-        return tuple(self.fields())
-
-    def __repr__(self):  # Adding -> causes error: Module has no attribute "_repr_fn"
-        dataclass_repr_func = dataclasses._repr_fn(
-            fields=list(self.fields().values()), globals=self.__dict__
-        )
-        r = dataclass_repr_func(self)
-        if self.missing():
-            return "Partial-" + r
-        return r
-
-
-@pydantic.dataclasses.dataclass
-class BacktestVenueConfig(Partialable):
-    """
-    Represents a venue configuration for one specific backtest engine.
-    """
-
-    name: str
-    oms_type: str
-    account_type: str
-    base_currency: Optional[str]
-    starting_balances: List[str]
-    book_type: str = "L1_TBBO"
-    routing: bool = False
-    # fill_model: Optional[FillModel] = None  # TODO(cs): Implement next iteration
-    # modules: Optional[List[SimulationModule]] = None  # TODO(cs): Implement next iteration
-
-    def __dask_tokenize__(self):
-        self.__post_init__()  # Ensures token determinism
-        values = [
-            self.name,
-            self.oms_type,
-            self.account_type,
-            self.base_currency,
-            ",".join(sorted([b for b in self.starting_balances])),
-            self.book_type,
-            self.routing,
-            # self.modules,  # TODO(cs): Implement next iteration
-        ]
-        return tuple(values)
-
-
-@pydantic.dataclasses.dataclass
-class BacktestDataConfig(Partialable):
-    """
-    Represents the data configuration for one specific backtest run.
-    """
-
-    catalog_path: str
-    data_cls: Optional[Union[type, str]] = None
-    catalog_fs_protocol: Optional[str] = None
-    catalog_fs_storage_options: Optional[Dict] = None
-    instrument_id: Optional[str] = None
-    start_time: Optional[Union[datetime, str, int]] = None
-    end_time: Optional[Union[datetime, str, int]] = None
-    filter_expr: Optional[str] = None
-    client_id: Optional[str] = None
-
-    def __post_init__(self):
-        if not isinstance(self.data_cls, str):
-            if not hasattr(self.data_cls, Data.fully_qualified_name.__name__):
-                raise TypeError(
-                    f"`data_cls` is not a valid `Data` class, was {type(self.data_cls)}",
-                )
-            self.data_cls = self.data_cls.fully_qualified_name()
-
-    @property
-    def data_type(self):
-        mod_path, cls_name = self.data_cls.rsplit(".", maxsplit=1)
-        mod = importlib.import_module(mod_path)
-        return getattr(mod, cls_name)
-
-    @property
-    def query(self):
-        return dict(
-            cls=self.data_type,
-            instrument_ids=[self.instrument_id] if self.instrument_id else None,
-            start=self.start_time,
-            end=self.end_time,
-            filter_expr=self.filter_expr,
-            as_nautilus=True,
-        )
-
-    @property
-    def start_time_nanos(self) -> int:
-        if self.start_time is None:
-            return 0
-        return maybe_dt_to_unix_nanos(pd.Timestamp(self.start_time))
-
-    @property
-    def end_time_nanos(self) -> int:
-        if self.end_time is None:
-            return sys.maxsize
-        return maybe_dt_to_unix_nanos(pd.Timestamp(self.end_time))
-
-    def catalog(self):
-        from nautilus_trader.persistence.catalog import DataCatalog
-
-        return DataCatalog(
-            path=self.catalog_path,
-            fs_protocol=self.catalog_fs_protocol,
-            fs_storage_options=self.catalog_fs_storage_options,
-        )
-
-    def load(self, start_time=None, end_time=None):
-        query = self.query
-        query.update(
-            {
-                "start": start_time or query["start"],
-                "end": end_time or query["end"],
-                "filter_expr": parse_filters_expr(query.pop("filter_expr", "None")),
-            }
-        )
-
-        catalog = self.catalog()
-        instruments = catalog.instruments(instrument_ids=self.instrument_id, as_nautilus=True)
-        if not instruments:
-            return {"data": [], "instrument": None}
-        data = catalog.query(**query)
-        return {
-            "type": query["cls"],
-            "data": data,
-            "instrument": instruments[0] if self.instrument_id else None,
-            "client_id": ClientId(self.client_id) if self.client_id else None,
-        }
-
-
-class BacktestEngineConfig(pydantic.BaseModel):
-    """
-    Configuration for ``BacktestEngine`` instances.
-
-    Parameters
-    ----------
-    trader_id : str, default "BACKTESTER-000"
-        The trader ID.
-    log_level : str, default "INFO"
-        The minimum log level for logging messages to stdout.
-    cache : CacheConfig, optional
-        The configuration for the cache.
-    cache_database : CacheDatabaseConfig, optional
-        The configuration for the cache database.
-    data_engine : DataEngineConfig, optional
-        The configuration for the data engine.
-    risk_engine : RiskEngineConfig, optional
-        The configuration for the risk engine.
-    exec_engine : ExecEngineConfig, optional
-        The configuration for the execution engine.
-    bypass_logging : bool, default False
-        If logging should be bypassed.
-    run_analysis : bool, default True
-        If post backtest performance analysis should be run.
-
-    """
-
-    trader_id: str = "BACKTESTER-000"
-    log_level: str = "INFO"
-    cache: Optional[CacheConfig] = None
-    cache_database: Optional[CacheDatabaseConfig] = None
-    data_engine: Optional[DataEngineConfig] = None
-    risk_engine: Optional[RiskEngineConfig] = None
-    exec_engine: Optional[ExecEngineConfig] = None
-    bypass_logging: bool = False
-    run_analysis: bool = True
-
-    def __dask_tokenize__(self):
-        return tuple(self.dict().items())
-
-
-# Required for passing `TradingStrategy` to `BacktestRunConfig.strategies`
-class _ArbitraryTypes:
-    arbitrary_types_allowed = True
-
-
-@pydantic.dataclasses.dataclass(config=_ArbitraryTypes)
-class BacktestRunConfig(Partialable):
-    """
-    Represents the configuration for one specific backtest run (a single set of
-    data / strategies / parameters).
-    """
-
-    engine: Optional[BacktestEngineConfig] = None
-    venues: Optional[List[BacktestVenueConfig]] = None
-    data: Optional[List[BacktestDataConfig]] = None
-    actors: Optional[List[ImportableActorConfig]] = None
-    strategies: Optional[List[ImportableStrategyConfig]] = None
-    persistence: Optional[PersistenceConfig] = None
-    batch_size_bytes: Optional[int] = None
-
-    @property
-    def id(self):
-        return tokenize(self)
-
-
-def parse_filters_expr(s: str):
+def parse_filters_expr(s: str | None):
     # TODO (bm) - could we do this better, probably requires writing our own parser?
     """
-    Parse a pyarrow.dataset filter expression from a string
+    Parse a pyarrow.dataset filter expression from a string.
 
     >>> parse_filters_expr('field("Currency") == "CHF"')
     <pyarrow.dataset.Expression (Currency == "CHF")>
@@ -293,10 +50,10 @@ def parse_filters_expr(s: str):
     """
     from pyarrow.dataset import field
 
-    assert field  # required for eval.
+    assert field  # Required for eval
 
     if not s:
-        return
+        return None
 
     def safer_eval(input_string):
         allowed_names = {"field": field}
@@ -304,6 +61,316 @@ def parse_filters_expr(s: str):
         for name in code.co_names:
             if name not in allowed_names:
                 raise NameError(f"Use of {name} not allowed")
-        return eval(code, {}, allowed_names)  # noqa: S307
+        return eval(code, {}, allowed_names)  # noqa
 
     return safer_eval(s)  # Only allow use of the field object
+
+
+class BacktestVenueConfig(NautilusConfig, frozen=True):
+    """
+    Represents a venue configuration for one specific backtest engine.
+
+    Parameters
+    ----------
+    name : str
+        The name of the venue.
+    oms_type : str
+        The order management system type for the exchange. If ``HEDGING`` will
+        generate new position IDs.
+    account_type : str
+        The account type for the exchange.
+    starting_balances : list[str]
+        The starting account balances (specify one for a single asset account).
+    base_currency : Currency, optional
+        The account base currency for the exchange. Use ``None`` for multi-currency accounts.
+    default_leverage : float, optional
+        The account default leverage (for margin accounts).
+    leverages : dict[str, float], optional
+        The instrument specific leverage configuration (for margin accounts).
+    book_type : str
+        The default order book type.
+    routing : bool, default False
+        If multi-venue routing should be enabled for the execution client.
+    frozen_account : bool, default False
+        If the account for this exchange is frozen (balances will not change).
+    reject_stop_orders : bool, default True
+        If stop orders are rejected on submission if trigger price is in the market.
+    support_gtd_orders : bool, default True
+        If orders with GTD time in force will be supported by the venue.
+    support_contingent_orders : bool, default True
+        If contingent orders will be supported/respected by the venue.
+        If False, then it's expected the strategy will be managing any contingent orders.
+    use_position_ids : bool, default True
+        If venue position IDs will be generated on order fills.
+    use_random_ids : bool, default False
+        If all venue generated identifiers will be random UUID4's.
+    use_reduce_only : bool, default True
+        If the `reduce_only` execution instruction on orders will be honored.
+    bar_execution : bool, default True
+        If bars should be processed by the matching engine(s) (and move the market).
+    bar_adaptive_high_low_ordering : bool, default False
+        Determines whether the processing order of bar prices is adaptive based on a heuristic.
+        This setting is only relevant when `bar_execution` is True.
+        If False, bar prices are always processed in the fixed order: Open, High, Low, Close.
+        If True, the processing order adapts with the heuristic:
+        - If High is closer to Open than Low then the processing order is Open, High, Low, Close.
+        - If Low is closer to Open than High then the processing order is Open, Low, High, Close.
+    trade_execution : bool, default False
+        If trades should be processed by the matching engine(s) (and move the market).
+
+    """
+
+    name: str
+    oms_type: str
+    account_type: str
+    starting_balances: list[str]
+    base_currency: str | None = None
+    default_leverage: float = 1.0
+    leverages: dict[str, float] | None = None
+    book_type: str = "L1_MBP"
+    routing: bool = False
+    frozen_account: bool = False
+    reject_stop_orders: bool = True
+    support_gtd_orders: bool = True
+    support_contingent_orders: bool = True
+    use_position_ids: bool = True
+    use_random_ids: bool = False
+    use_reduce_only: bool = True
+    bar_execution: bool = True
+    bar_adaptive_high_low_ordering: bool = False
+    trade_execution: bool = False
+    # fill_model: FillModel | None = None  # TODO: Implement
+    modules: list[ImportableActorConfig] | None = None
+
+
+class BacktestDataConfig(NautilusConfig, frozen=True):
+    """
+    Represents the data configuration for one specific backtest run.
+
+    Parameters
+    ----------
+    catalog_path : str
+        The path to the data catalog.
+    data_cls : str
+        The data type for the configuration.
+    catalog_fs_protocol : str, optional
+        The `fsspec` filesystem protocol for the catalog.
+    catalog_fs_storage_options : dict, optional
+        The `fsspec` storage options.
+    instrument_id : InstrumentId, optional
+        The instrument ID for the data configuration.
+    start_time : str or int, optional
+        The start time for the data configuration.
+        Can be an ISO 8601 format datetime string, or UNIX nanoseconds integer.
+    end_time : str or int, optional
+        The end time for the data configuration.
+        Can be an ISO 8601 format datetime string, or UNIX nanoseconds integer.
+    filter_expr : str, optional
+        The additional filter expressions for the data catalog query.
+    client_id : str, optional
+        The client ID for the data configuration.
+    metadata : dict, optional
+        The metadata for the data catalog query.
+    bar_spec : str, optional
+        The bar specification for the data catalog query.
+
+    """
+
+    catalog_path: str
+    data_cls: str
+    catalog_fs_protocol: str | None = None
+    catalog_fs_storage_options: dict | None = None
+    instrument_id: InstrumentId | None = None
+    start_time: str | int | None = None
+    end_time: str | int | None = None
+    filter_expr: str | None = None
+    client_id: str | None = None
+    metadata: dict | None = None
+    bar_spec: str | None = None
+
+    @property
+    def data_type(self) -> type:
+        """
+        Return a `type` for the specified `data_cls` for the configuration.
+
+        Returns
+        -------
+        type
+
+        """
+        if isinstance(self.data_cls, str):
+            return resolve_path(self.data_cls)
+        else:
+            return self.data_cls
+
+    @property
+    def query(self) -> dict[str, Any]:
+        """
+        Return a catalog query object for the configuration.
+
+        Returns
+        -------
+        dict[str, Any]
+
+        """
+        if self.data_cls is Bar and self.bar_spec:
+            bar_type = f"{self.instrument_id}-{self.bar_spec}-EXTERNAL"
+            filter_expr: str | None = f'field("bar_type") == "{bar_type}"'
+        else:
+            filter_expr = self.filter_expr
+
+        return {
+            "data_cls": self.data_type,
+            "instrument_ids": [self.instrument_id] if self.instrument_id else None,
+            "start": self.start_time,
+            "end": self.end_time,
+            "filter_expr": parse_filters_expr(filter_expr),
+            "metadata": self.metadata,
+        }
+
+    @property
+    def start_time_nanos(self) -> int:
+        """
+        Return the data configuration start time in UNIX nanoseconds.
+
+        Will be zero if no `start_time` was specified.
+
+        Returns
+        -------
+        int
+
+        """
+        if self.start_time is None:
+            return 0
+        return dt_to_unix_nanos(self.start_time)
+
+    @property
+    def end_time_nanos(self) -> int:
+        """
+        Return the data configuration end time in UNIX nanoseconds.
+
+        Will be sys.maxsize if no `end_time` was specified.
+
+        Returns
+        -------
+        int
+
+        """
+        if self.end_time is None:
+            return sys.maxsize
+        return dt_to_unix_nanos(self.end_time)
+
+
+class BacktestEngineConfig(NautilusKernelConfig, frozen=True):
+    """
+    Configuration for ``BacktestEngine`` instances.
+
+    Parameters
+    ----------
+    trader_id : TraderId
+        The trader ID for the node (must be a name and ID tag separated by a hyphen).
+    log_level : str, default "INFO"
+        The stdout log level for the node.
+    loop_debug : bool, default False
+        If the asyncio event loop should be in debug mode.
+    cache : CacheConfig, optional
+        The cache configuration.
+    data_engine : DataEngineConfig, optional
+        The live data engine configuration.
+    risk_engine : RiskEngineConfig, optional
+        The live risk engine configuration.
+    exec_engine : ExecEngineConfig, optional
+        The live execution engine configuration.
+    streaming : StreamingConfig, optional
+        The configuration for streaming to feather files.
+    strategies : list[ImportableStrategyConfig]
+        The strategy configurations for the kernel.
+    actors : list[ImportableActorConfig]
+        The actor configurations for the kernel.
+    exec_algorithms : list[ImportableExecAlgorithmConfig]
+        The execution algorithm configurations for the kernel.
+    controller : ImportableControllerConfig, optional
+        The trader controller for the kernel.
+    load_state : bool, default True
+        If trading strategy state should be loaded from the database on start.
+    save_state : bool, default True
+        If trading strategy state should be saved to the database on stop.
+    bypass_logging : bool, default False
+        If logging should be bypassed.
+    run_analysis : bool, default True
+        If post backtest performance analysis should be run.
+
+    """
+
+    environment: Environment = Environment.BACKTEST
+    trader_id: TraderId = TraderId("BACKTESTER-001")
+    data_engine: DataEngineConfig = DataEngineConfig()
+    risk_engine: RiskEngineConfig = RiskEngineConfig()
+    exec_engine: ExecEngineConfig = ExecEngineConfig()
+    run_analysis: bool = True
+
+
+class BacktestRunConfig(NautilusConfig, frozen=True):
+    """
+    Represents the configuration for one specific backtest run.
+
+    This includes a backtest engine with its actors and strategies, with the
+    external inputs of venues and data.
+
+    Parameters
+    ----------
+    venues : list[BacktestVenueConfig]
+        The venue configurations for the backtest run.
+    data : list[BacktestDataConfig]
+        The data configurations for the backtest run.
+    engine : BacktestEngineConfig
+        The backtest engine configuration (the core system kernel).
+    chunk_size : int, optional
+        The number of data points to process in each chunk during streaming mode.
+        If `None`, the backtest will run without streaming, loading all data at once.
+    dispose_on_completion : bool, default True
+        If the backtest engine should be disposed on completion of the run.
+        If True, then will drop data and all state.
+        If False, then will *only* drop data.
+    start : datetime or str or int, optional
+        The start datetime (UTC) for the backtest run.
+        If ``None`` engine runs from the start of the data.
+    end : datetime or str or int, optional
+        The end datetime (UTC) for the backtest run.
+        If ``None`` engine runs to the end of the data.
+
+    Notes
+    -----
+    A valid backtest run configuration must include:
+      - At least one `venues` config.
+      - At least one `data` config.
+
+    """
+
+    venues: list[BacktestVenueConfig]
+    data: list[BacktestDataConfig]
+    engine: BacktestEngineConfig | None = None
+    chunk_size: int | None = None
+    dispose_on_completion: bool = True
+    start: str | int | None = None
+    end: str | int | None = None
+
+
+class SimulationModuleConfig(ActorConfig, frozen=True):
+    """
+    Configuration for ``SimulationModule`` instances.
+    """
+
+
+class FXRolloverInterestConfig(SimulationModuleConfig, frozen=True):
+    """
+    Provides an FX rollover interest simulation module.
+
+    Parameters
+    ----------
+    rate_data : pd.DataFrame
+        The interest rate data for the internal rollover interest calculator.
+
+    """
+
+    rate_data: pd.DataFrame  # TODO: This could probably just become JSON data

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,10 +13,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, Optional
+from typing import Any
 
+import numpy as np
 import pandas as pd
-import quantstats
 
 from nautilus_trader.analysis.statistic import PortfolioStatistic
 
@@ -26,5 +26,9 @@ class RiskReturnRatio(PortfolioStatistic):
     Calculates the return on risk ratio.
     """
 
-    def calculate_from_returns(self, returns: pd.Series) -> Optional[Any]:
-        return quantstats.stats.risk_return_ratio(returns=returns)
+    def calculate_from_returns(self, returns: pd.Series) -> Any | None:
+        # Preconditions
+        if not self._check_valid_returns(returns):
+            return np.nan
+
+        return returns.mean() / returns.std()

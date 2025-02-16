@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,44 +13,91 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Dict, Optional
+from __future__ import annotations
 
-import pydantic
+from datetime import time
 
-from nautilus_trader.persistence.catalog import DataCatalog
+import fsspec
+import pandas as pd
+
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.persistence.writer import RotationMode
 
 
-class PersistenceConfig(pydantic.BaseModel):
+class StreamingConfig(NautilusConfig, frozen=True):
     """
-    Configuration for persisting live or backtest runs to the catalog in feather format.
+    Configuration for streaming live or backtest runs to the catalog in feather format.
 
     Parameters
     ----------
     catalog_path : str
-        The path to the data catalog
-    fs_protocol : str
-        The fsspec filesystem protocol of the catalog
-    persist_logs: bool
-        Persist log file to catalog
-    flush_interval : int
-        How often to write chunks, in milliseconds
+        The path to the data catalog.
+    fs_protocol : str, optional
+        The `fsspec` filesystem protocol for the catalog.
+    fs_storage_options : dict, optional
+        The `fsspec` storage options.
+    flush_interval_ms : int, optional
+        The flush interval (milliseconds) for writing chunks.
+    replace_existing: bool, default False
+        If any existing feather files should be replaced.
+    include_types : list[type], optional
+        A list of Arrow serializable types to write.
+        If this is specified then **only** the included types will be written.
+    rotation_mode : RotationMode, default RotationMode.NO_ROTATION
+        The mode for file rotation.
+    max_file_size : int, default 1GB
+        The maximum file size in bytes before rotation (for SIZE mode).
+    rotation_interval : pd.Timedelta, default 1 day
+        The time interval for file rotation (for INTERVAL mode and SCHEDULED_DATES mode).
+    rotation_time : time, default 00:00
+        The time of day for file rotation (for SCHEDULED_DATES mode).
+    rotation_timezone : str, default 'UTC'
+        The timezone for rotation calculations (for SCHEDULED_DATES mode).
+
     """
 
     catalog_path: str
-    kind: str  # live or backtest
-    fs_protocol: Optional[str] = None
-    fs_storage_options: Optional[Dict] = None
-    persist_logs: bool = False
-    flush_interval: Optional[int] = None
+    fs_protocol: str | None = None
+    fs_storage_options: dict | None = None
+    flush_interval_ms: int | None = None
     replace_existing: bool = False
+    include_types: list[type] | None = None
+    rotation_mode: RotationMode = RotationMode.NO_ROTATION
+    max_file_size: int = 1024 * 1024 * 1024  # 1GB
+    rotation_interval: pd.Timedelta = pd.Timedelta(days=1)
+    rotation_time: time = time(0, 0, 0, 0)
+    rotation_timezone: str = "UTC"
 
-    @classmethod
-    def from_catalog(cls, catalog: DataCatalog, **kwargs):
-        return cls(catalog_path=str(catalog.path), fs_protocol=catalog.fs.protocol, **kwargs)
+    @property
+    def fs(self):
+        return fsspec.filesystem(protocol=self.fs_protocol, **(self.fs_storage_options or {}))
 
-    def as_catalog(self) -> DataCatalog:
-        return DataCatalog(
+    def as_catalog(self):
+        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+        return ParquetDataCatalog(
             path=self.catalog_path,
             fs_protocol=self.fs_protocol,
             fs_storage_options=self.fs_storage_options,
         )
+
+
+class DataCatalogConfig(NautilusConfig, frozen=True):
+    """
+    Configuration for a data catalog.
+
+    Parameters
+    ----------
+    path : str
+        The path to the data catalog.
+    fs_protocol : str, optional
+        The fsspec file system protocol for the data catalog.
+    fs_storage_options : dict, optional
+        The fsspec storage options for the data catalog.
+
+    """
+
+    path: str
+    fs_protocol: str | None = None
+    fs_storage_options: dict | None = None
+    name: str | None = None

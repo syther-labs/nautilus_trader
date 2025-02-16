@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,10 +15,13 @@
 
 from decimal import Decimal
 
+from nautilus_trader.accounting.error import AccountBalanceNegative
+
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.account_type cimport AccountType
-from nautilus_trader.model.c_enums.account_type cimport AccountTypeParser
+from nautilus_trader.core.rust.model cimport AccountType
+from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.model.events.account cimport AccountState
+from nautilus_trader.model.functions cimport account_type_to_str
 from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.objects cimport AccountBalance
 
@@ -38,29 +41,29 @@ cdef class Account:
         self.is_margin_account = self.type == AccountType.MARGIN
         self.calculate_account_state = calculate_account_state
 
-        self._events = [event]      # type: list[AccountState]  # `last_event_c()` guaranteed
-        self._commissions = {}      # type: dict[Currency, Money]
-        self._balances = {}         # type: dict[Currency, AccountBalance]
-        self._balances_starting = {b.currency: b.total for b in event.balances}
+        self._events: list[AccountState] = [event]  # `last_event_c()` guaranteed
+        self._commissions: dict[Currency, Money] = {}
+        self._balances: dict[Currency, AccountBalance] = {}
+        self._balances_starting: dict[Currency, Money] = {b.currency: b.total for b in event.balances}
 
         self.update_balances(event.balances)
 
     def __eq__(self, Account other) -> bool:
-        return self.id.value == other.id.value
+        return self.id == other.id
 
     def __hash__(self) -> int:
-        return hash(self.id.value)
+        return hash(self.id)
 
     def __repr__(self) -> str:
         cdef str base_str = self.base_currency.code if self.base_currency is not None else None
         return (
             f"{type(self).__name__}("
-            f"id={self.id.value}, "
-            f"type={AccountTypeParser.to_str(self.type)}, "
+            f"id={self.id.to_str()}, "
+            f"type={account_type_to_str(self.type)}, "
             f"base={base_str})"
         )
 
-# -- QUERIES ---------------------------------------------------------------------------------------
+# -- QUERIES --------------------------------------------------------------------------------------
 
     cdef AccountState last_event_c(self):
         return self._events[-1]  # Guaranteed at least one event from initialization
@@ -74,7 +77,7 @@ cdef class Account:
     @property
     def last_event(self):
         """
-        The accounts last state event.
+        Return the accounts last state event.
 
         Returns
         -------
@@ -86,7 +89,7 @@ cdef class Account:
     @property
     def events(self):
         """
-        All events received by the account.
+        Return all events received by the account.
 
         Returns
         -------
@@ -98,7 +101,7 @@ cdef class Account:
     @property
     def event_count(self):
         """
-        The count of events.
+        Return the count of events.
 
         Returns
         -------
@@ -182,7 +185,7 @@ cdef class Account:
         """
         return self._commissions.copy()
 
-    cpdef AccountBalance balance(self, Currency currency=None):
+    cpdef AccountBalance balance(self, Currency currency = None):
         """
         Return the current account balance total.
 
@@ -215,7 +218,7 @@ cdef class Account:
 
         return self._balances.get(currency)
 
-    cpdef Money balance_total(self, Currency currency=None):
+    cpdef Money balance_total(self, Currency currency = None):
         """
         Return the current account balance total.
 
@@ -251,7 +254,7 @@ cdef class Account:
             return None
         return balance.total
 
-    cpdef Money balance_free(self, Currency currency=None):
+    cpdef Money balance_free(self, Currency currency = None):
         """
         Return the account balance free.
 
@@ -287,7 +290,7 @@ cdef class Account:
             return None
         return balance.free
 
-    cpdef Money balance_locked(self, Currency currency=None):
+    cpdef Money balance_locked(self, Currency currency = None):
         """
         Return the account balance locked.
 
@@ -341,9 +344,9 @@ cdef class Account:
 
         return self._commissions.get(currency)
 
-# -- COMMANDS --------------------------------------------------------------------------------------
+# -- COMMANDS -------------------------------------------------------------------------------------
 
-    cpdef void apply(self, AccountState event) except *:
+    cpdef void apply(self, AccountState event):
         """
         Apply the given account event to the account.
 
@@ -373,13 +376,13 @@ cdef class Account:
 
         if self.base_currency:
             # Single-currency account
-            Condition.true(len(event.balances) == 1, "single-currency account has multiple currency update")
+            Condition.is_true(len(event.balances) == 1, "single-currency account has multiple currency update")
             Condition.equal(event.balances[0].currency, self.base_currency, "event.balances[0].currency", "self.base_currency")
 
         self._events.append(event)
         self.update_balances(event.balances)
 
-    cpdef void update_balances(self, list balances, bint allow_zero=True) except *:
+    cpdef void update_balances(self, list balances, bint allow_zero=True):
         """
         Update the account balances.
 
@@ -403,22 +406,17 @@ cdef class Account:
 
         cdef AccountBalance balance
         for balance in balances:
-            total: Decimal = balance.total.as_decimal()
-            if total <= 0:
-                if total < 0:
-                    raise RuntimeError(
-                        f"account blow up (balance was {balance.total}).",
-                    )
-                if total == 0 and not allow_zero:
-                    raise RuntimeError(
-                        f"account blow up (balance was {balance.total}).",
-                    )
+            if not balance.total._mem.raw > 0:
+                if balance.total._mem.raw < 0:
+                    raise AccountBalanceNegative(balance.total.as_decimal(), balance.currency)
+                if balance.total.is_zero() and not allow_zero:
+                    raise AccountBalanceNegative(balance.total.as_decimal(), balance.currency)
                 else:
                     # Clear asset balance
                     self._balances.pop(balance.currency, None)
             self._balances[balance.currency] = balance
 
-    cpdef void update_commissions(self, Money commission) except *:
+    cpdef void update_commissions(self, Money commission):
         """
         Update the commissions.
 
@@ -437,34 +435,57 @@ cdef class Account:
         Condition.not_none(commission, "commission")
 
         # Increment total commissions
-        if commission.as_decimal() == 0:
+        if commission._mem.raw == 0:
             return  # Nothing to update
 
         cdef Currency currency = commission.currency
-        total_commissions: Decimal = self._commissions.get(currency, Decimal(0))
-        self._commissions[currency] = Money(total_commissions + commission, currency)
+        total_commissions = self._commissions.get(currency, Decimal(0))
+        self._commissions[currency] = Money(total_commissions + commission.as_decimal(), currency)
 
-# -- CALCULATIONS ----------------------------------------------------------------------------------
+# -- CALCULATIONS ---------------------------------------------------------------------------------
 
-    cdef void _recalculate_balance(self, Currency currency) except *:
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    cpdef bint is_unleveraged(self, InstrumentId instrument_id):
+        """
+        Return whether the given instrument is leveraged for this account (leverage == 1).
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            The instrument ID to check.
+
+        Returns
+        -------
+        bool
+
+        """
+        raise NotImplementedError("method `is_unleveraged` must be implemented in the subclass")  # pragma: no cover
+
+    cdef void _recalculate_balance(self, Currency currency):
+        raise NotImplementedError("method `_recalculate_balance` must be implemented in the subclass")  # pragma: no cover
 
     cpdef Money calculate_commission(
         self,
         Instrument instrument,
         Quantity last_qty,
-        last_px: Decimal,
+        Price last_px,
         LiquiditySide liquidity_side,
-        bint inverse_as_quote=False,
+        bint use_quote_for_inverse=False,
     ):
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `calculate_commission` must be implemented in the subclass")  # pragma: no cover
 
     cpdef list calculate_pnls(
         self,
         Instrument instrument,
-        Position position,  # Can be None
         OrderFilled fill,
+        Position position: Position | None = None,
     ):
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `calculate_pnls` must be implemented in the subclass")  # pragma: no cover
+
+    cpdef Money balance_impact(
+        self,
+        Instrument instrument,
+        Quantity quantity,
+        Price price,
+        OrderSide order_side,
+    ):
+        raise NotImplementedError("method `balance_impact` must be implemented in the subclass")  # pragma: no cover

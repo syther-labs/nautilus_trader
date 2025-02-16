@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,8 +14,6 @@
 # -------------------------------------------------------------------------------------------------
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Dict, Optional
 
 
 @dataclass
@@ -26,20 +24,20 @@ class BacktestResult:
 
     trader_id: str
     machine_id: str
-    run_config_id: Optional[str]
+    run_config_id: str | None
     instance_id: str
     run_id: str
-    run_started: datetime
-    run_finished: datetime
-    backtest_start: datetime
-    backtest_end: datetime
+    run_started: int | None
+    run_finished: int | None
+    backtest_start: int | None
+    backtest_end: int | None
     elapsed_time: float
     iterations: int
     total_events: int
     total_orders: int
     total_positions: int
-    stats_pnls: Dict[str, Dict[str, float]]
-    stats_returns: Dict[str, float]
+    stats_pnls: dict[str, dict[str, float]]
+    stats_returns: dict[str, float]
 
     # account_balances: pd.DataFrame
     # fills_report: pd.DataFrame
@@ -61,9 +59,11 @@ class BacktestResult:
 
 def ensure_plotting(func):
     """
-    Decorate a function that require a plotting library
+    Decorate a function that require a plotting library.
 
-    Ensures library is installed and providers a better error about how to install if not found
+    Ensures library is installed and providers a better error about how to install if
+    not found.
+
     """
 
     def inner(*args, **kwargs):
@@ -73,7 +73,7 @@ def ensure_plotting(func):
             assert hvplot.pandas
         except ImportError:
             raise ImportError(
-                "Failed to import plotting library - install in notebook via `%pip install hvplot`"
+                "Failed to import plotting library - install in notebook via `%pip install hvplot`",
             )
         return func(*args, **kwargs)
 
@@ -82,7 +82,7 @@ def ensure_plotting(func):
 
 # @dataclass()
 # class BacktestRunResults:
-#     results: List[BacktestResult]
+#     results: list[BacktestResult]
 #
 #     def final_balances(self):
 #         return pd.concat(r.final_balances().to_frame().assign(id=r.id) for r in self.results)

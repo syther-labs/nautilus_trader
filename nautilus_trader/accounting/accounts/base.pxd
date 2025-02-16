@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,17 +13,18 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from decimal import Decimal
-
-from nautilus_trader.model.c_enums.account_type cimport AccountType
-from nautilus_trader.model.c_enums.liquidity_side cimport LiquiditySide
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.rust.model cimport AccountType
+from nautilus_trader.core.rust.model cimport LiquiditySide
+from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.model.events.account cimport AccountState
 from nautilus_trader.model.events.order cimport OrderFilled
 from nautilus_trader.model.identifiers cimport AccountId
+from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.objects cimport AccountBalance
+from nautilus_trader.model.objects cimport Currency
 from nautilus_trader.model.objects cimport Money
+from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
 from nautilus_trader.model.position cimport Position
 
@@ -68,26 +69,35 @@ cdef class Account:
 
 # -- COMMANDS --------------------------------------------------------------------------------------
 
-    cpdef void apply(self, AccountState event) except *
-    cpdef void update_balances(self, list balances, bint allow_zero=*) except *
-    cpdef void update_commissions(self, Money commission) except *
+    cpdef void apply(self, AccountState event)
+    cpdef void update_balances(self, list balances, bint allow_zero=*)
+    cpdef void update_commissions(self, Money commission)
 
 # -- CALCULATIONS ----------------------------------------------------------------------------------
 
-    cdef void _recalculate_balance(self, Currency currency) except *
+    cpdef bint is_unleveraged(self, InstrumentId instrument_id)
+    cdef void _recalculate_balance(self, Currency currency)
 
     cpdef Money calculate_commission(
         self,
         Instrument instrument,
         Quantity last_qty,
-        last_px: Decimal,
+        Price last_px,
         LiquiditySide liquidity_side,
-        bint inverse_as_quote=*,
+        bint use_quote_for_inverse=*,
     )
 
     cpdef list calculate_pnls(
         self,
         Instrument instrument,
-        Position position,
         OrderFilled fill,
+        Position position=*,
+    )
+
+    cpdef Money balance_impact(
+        self,
+        Instrument instrument,
+        Quantity quantity,
+        Price price,
+        OrderSide order_side,
     )

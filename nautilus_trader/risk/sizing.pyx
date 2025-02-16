@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -24,7 +24,7 @@ from nautilus_trader.model.objects cimport Quantity
 
 cdef class PositionSizer:
     """
-    The abstract base class for all position sizers.
+    The base class for all position sizers.
 
     Parameters
     ----------
@@ -39,7 +39,7 @@ cdef class PositionSizer:
     def __init__(self, Instrument instrument not None):
         self.instrument = instrument
 
-    cpdef void update_instrument(self, Instrument instrument) except *:
+    cpdef void update_instrument(self, Instrument instrument):
         """
         Update the internal instrument with the given instrument.
 
@@ -65,14 +65,14 @@ cdef class PositionSizer:
         Price stop_loss,
         Money equity,
         risk: Decimal,
-        commission_rate: Decimal=Decimal(0),
-        exchange_rate: Decimal=Decimal(1),
-        hard_limit: Decimal=None,
-        unit_batch_size: Decimal=Decimal(1),
+        commission_rate: Decimal = Decimal(0),
+        exchange_rate: Decimal = Decimal(1),
+        hard_limit: Decimal | None = None,
+        unit_batch_size: Decimal = Decimal(1),
         int units=1,
     ):
         """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `calculate` must be implemented in the subclass")  # pragma: no cover
 
     cdef object _calculate_risk_ticks(self, Price entry, Price stop_loss):
         return abs(entry - stop_loss) / self.instrument.price_increment
@@ -110,9 +110,9 @@ cdef class FixedRiskSizer(PositionSizer):
         Price stop_loss,
         Money equity,
         risk: Decimal,
-        commission_rate: Decimal=Decimal(0),
-        exchange_rate: Decimal=Decimal(1),
-        hard_limit: Decimal=None,
+        commission_rate: Decimal = Decimal(0),
+        exchange_rate: Decimal = Decimal(1),
+        hard_limit: Decimal | None = None,
         unit_batch_size: Decimal=Decimal(1),
         int units=1,
     ):

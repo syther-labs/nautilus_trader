@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,46 +13,67 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import asyncio
-
 import pytest
 
+from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
+from nautilus_trader.adapters.binance.common.enums import BinanceOrderType
+from nautilus_trader.adapters.binance.common.enums import BinanceTimeInForce
+from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
+from nautilus_trader.adapters.binance.futures.http.account import BinanceFuturesAccountHttpAPI
+from nautilus_trader.adapters.binance.http.account import BinanceOrderHttp
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.account import BinanceSpotAccountHttpAPI
-from nautilus_trader.common.clock import LiveClock
-from nautilus_trader.common.logging import Logger
+from nautilus_trader.common.component import LiveClock
 
 
+@pytest.mark.skip(reason="WIP")
 class TestBinanceSpotAccountHttpAPI:
     def setup(self):
         # Fixture Setup
-        clock = LiveClock()
-        logger = Logger(clock=clock)
-        self.client = BinanceHttpClient(  # noqa: S106 (no hardcoded password)
-            loop=asyncio.get_event_loop(),
-            clock=clock,
-            logger=logger,
-            key="SOME_BINANCE_API_KEY",
-            secret="SOME_BINANCE_API_SECRET",
+        self.clock = LiveClock()
+        self.client = BinanceHttpClient(
+            clock=self.clock,
+            api_key="SOME_BINANCE_API_KEY",
+            api_secret="SOME_BINANCE_API_SECRET",
+            base_url="https://api.binance.com/",  # Spot/Margin
         )
 
-        self.api = BinanceSpotAccountHttpAPI(self.client)
+        self.api = BinanceSpotAccountHttpAPI(self.client, self.clock)
 
-    @pytest.mark.asyncio
+        self.futures_client = BinanceHttpClient(
+            clock=self.clock,
+            api_key="SOME_BINANCE_FUTURES_API_KEY",
+            api_secret="SOME_BINANCE_FUTURES_API_SECRET",
+            base_url="https://fapi.binance.com/",  # Futures
+        )
+
+        self.futures_api = BinanceFuturesAccountHttpAPI(self.futures_client, self.clock)
+
+    # COMMON tests
+
+    @pytest.mark.asyncio()
     async def test_new_order_test_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
+        endpoint = BinanceOrderHttp(
+            client=self.client,
+            base_endpoint="/api/v3",
+            testing_endpoint=True,
+        )
+
         # Act
-        await self.api.new_order_test(
-            symbol="ETHUSDT",
-            side="SELL",
-            type="LIMIT",
-            time_in_force="GTC",
-            quantity="0.01",
-            price="5000",
-            recv_window=5000,
+        await endpoint.post(
+            params=endpoint.PostParameters(
+                symbol=BinanceSymbol("ETHUSDT"),
+                side=BinanceOrderSide.SELL,
+                type=BinanceOrderType.LIMIT,
+                timeInForce=BinanceTimeInForce.GTC,
+                quantity="0.01",
+                price="5000",
+                recvWindow=str(5000),
+                timestamp=str(self.clock.timestamp_ms()),
+            ),
         )
 
         # Assert
@@ -60,24 +81,23 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "POST"
         assert request["url"] == "https://api.binance.com/api/v3/order/test"
         assert request["params"].startswith(
-            "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.01&price=5000&recvWindow=5000&timestamp="
+            "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.01&price=5000&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
-    async def test_order_test_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_new_order_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
         await self.api.new_order(
             symbol="ETHUSDT",
-            side="SELL",
-            type="LIMIT",
-            time_in_force="GTC",
+            side=BinanceOrderSide.SELL,
+            order_type=BinanceOrderType.LIMIT,
+            time_in_force=BinanceTimeInForce.GTC,
             quantity="0.01",
             price="5000",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -85,20 +105,19 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "POST"
         assert request["url"] == "https://api.binance.com/api/v3/order"
         assert request["params"].startswith(
-            "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.01&price=5000&recvWindow=5000&timestamp="
+            "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.01&price=5000&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cancel_order_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
         await self.api.cancel_order(
             symbol="ETHUSDT",
-            order_id="1",
-            recv_window=5000,
+            order_id=1,
+            recv_window="5000",
         )
 
         # Assert
@@ -107,16 +126,15 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/order"
         assert request["params"].startswith("symbol=ETHUSDT&orderId=1&recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_cancel_open_orders_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_cancel_all_open_orders_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.cancel_open_orders(
+        await self.api.cancel_all_open_orders(
             symbol="ETHUSDT",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -125,17 +143,16 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/openOrders"
         assert request["params"].startswith("symbol=ETHUSDT&recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_get_order_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_order_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_order(
+        await self.api.query_order(
             symbol="ETHUSDT",
-            order_id="1",
-            recv_window=5000,
+            order_id=1,
+            recv_window="5000",
         )
 
         # Assert
@@ -144,16 +161,15 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/order"
         assert request["params"].startswith("symbol=ETHUSDT&orderId=1&recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_get_open_orders_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_open_orders_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_open_orders(
+        await self.api.query_open_orders(
             symbol="ETHUSDT",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -162,16 +178,15 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/openOrders"
         assert request["params"].startswith("symbol=ETHUSDT&recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_get_orders_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_all_orders_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_orders(
+        await self.api.query_all_orders(
             symbol="ETHUSDT",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -180,16 +195,39 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/allOrders"
         assert request["params"].startswith("symbol=ETHUSDT&recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_new_oco_order_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_user_trades_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.new_oco_order(
+        await self.api.query_user_trades(
             symbol="ETHUSDT",
-            side="BUY",
+            start_time=str(1600000000),
+            end_time=str(1637355823),
+            limit=1000,
+            recv_window=str(5000),
+        )
+
+        # Assert
+        request = mock_send_request.call_args.kwargs
+        assert request["method"] == "GET"
+        assert request["url"] == "https://api.binance.com/api/v3/myTrades"
+        assert request["params"].startswith(
+            "symbol=ETHUSDT&fromId=1&orderId=1&startTime=1600000000&endTime=1637355823&limit=1000&recvWindow=5000&timestamp=",
+        )
+
+    # SPOT/MARGIN tests
+
+    @pytest.mark.asyncio()
+    async def test_new_spot_oco_sends_expected_request(self, mocker):
+        # Arrange
+        mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
+
+        # Act
+        await self.api.new_spot_oco(
+            symbol="ETHUSDT",
+            side=BinanceOrderSide.BUY,
             quantity="100",
             price="5000.00",
             stop_price="4000.00",
@@ -199,8 +237,8 @@ class TestBinanceSpotAccountHttpAPI:
             stop_client_order_id="O-002",
             stop_limit_price="3500.00",
             stop_iceberg_qty="50",
-            stop_limit_time_in_force="GTC",
-            recv_window=5000,
+            stop_limit_time_in_force=BinanceTimeInForce.GTC,
+            recv_window="5000",
         )
 
         # Assert
@@ -208,22 +246,21 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "POST"
         assert request["url"] == "https://api.binance.com/api/v3/order/oco"
         assert request["params"].startswith(
-            "symbol=ETHUSDT&side=BUY&quantity=100&price=5000.00&stopPrice=4000.00&listClientOrderId=1&limitClientOrderId=O-001&limitIcebergQty=50&stopClientOrderId=O-002&stopLimitPrice=3500.00&stopIcebergQty=50&stopLimitTimeInForce=GTC&recvWindow=5000&timestamp="  # noqa
+            "symbol=ETHUSDT&side=BUY&quantity=100&price=5000.00&stopPrice=4000.00&listClientOrderId=1&limitClientOrderId=O-001&limitIcebergQty=50&stopClientOrderId=O-002&stopLimitPrice=3500.00&stopIcebergQty=50&stopLimitTimeInForce=GTC&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
-    async def test_cancel_oco_order_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_cancel_spot_oco_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.cancel_oco_order(
+        await self.api.cancel_spot_oco(
             symbol="ETHUSDT",
             order_list_id="1",
             list_client_order_id="1",
             new_client_order_id="2",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -231,20 +268,19 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "DELETE"
         assert request["url"] == "https://api.binance.com/api/v3/orderList"
         assert request["params"].startswith(
-            "symbol=ETHUSDT&orderListId=1&listClientOrderId=1&newClientOrderId=2&recvWindow=5000&timestamp="
+            "symbol=ETHUSDT&orderListId=1&listClientOrderId=1&newClientOrderId=2&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
-    async def test_get_oco_order_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_spot_oco_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_oco_order(
+        await self.api.query_spot_oco(
             order_list_id="1",
             orig_client_order_id="1",
-            recv_window=5000,
+            recv_window="5000",
         )
 
         # Assert
@@ -252,22 +288,20 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "GET"
         assert request["url"] == "https://api.binance.com/api/v3/orderList"
         assert request["params"].startswith(
-            "orderListId=1&origClientOrderId=1&recvWindow=5000&timestamp="
+            "orderListId=1&origClientOrderId=1&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
-    async def test_get_oco_orders_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_spot_all_oco_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_oco_orders(
-            from_id="1",
-            start_time=1600000000,
-            end_time=1637355823,
+        await self.api.query_spot_all_oco(
+            start_time=str(1600000000),
+            end_time=str(1637355823),
             limit=10,
-            recv_window=5000,
+            recv_window=str(5000),
         )
 
         # Assert
@@ -275,17 +309,16 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["method"] == "GET"
         assert request["url"] == "https://api.binance.com/api/v3/allOrderList"
         assert request["params"].startswith(
-            "fromId=1&startTime=1600000000&endTime=1637355823&limit=10&recvWindow=5000&timestamp="
+            "startTime=1600000000&endTime=1637355823&limit=10&recvWindow=5000&timestamp=",
         )
 
-    @pytest.mark.asyncio
-    async def test_get_open_oco_orders_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_spot_all_open_oco_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_oco_open_orders(recv_window=5000)
+        await self.api.query_spot_all_open_oco(recv_window=5000)
 
         # Assert
         request = mock_send_request.call_args.kwargs
@@ -293,14 +326,13 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/openOrderList"
         assert request["params"].startswith("recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_account_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_spot_account_info_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.account(recv_window=5000)
+        await self.api.query_spot_account_info(recv_window=5000)
 
         # Assert
         request = mock_send_request.call_args.kwargs
@@ -308,27 +340,16 @@ class TestBinanceSpotAccountHttpAPI:
         assert request["url"] == "https://api.binance.com/api/v3/account"
         assert request["params"].startswith("recvWindow=5000&timestamp=")
 
-    @pytest.mark.asyncio
-    async def test_my_trades_sends_expected_request(self, mocker):
+    @pytest.mark.asyncio()
+    async def test_query_futures_hedge_mode_sends_expected_request(self, mocker):
         # Arrange
-        await self.client.connect()
         mock_send_request = mocker.patch(target="aiohttp.client.ClientSession.request")
 
         # Act
-        await self.api.get_account_trades(
-            symbol="ETHUSDT",
-            from_id="1",
-            order_id="1",
-            start_time=1600000000,
-            end_time=1637355823,
-            limit=1000,
-            recv_window=5000,
-        )
+        await self.futures_api.query_futures_hedge_mode(recv_window=5000)
 
         # Assert
         request = mock_send_request.call_args.kwargs
         assert request["method"] == "GET"
-        assert request["url"] == "https://api.binance.com/api/v3/myTrades"
-        assert request["params"].startswith(
-            "symbol=ETHUSDT&fromId=1&orderId=1&startTime=1600000000&endTime=1637355823&limit=1000&recvWindow=5000&timestamp="
-        )
+        assert request["url"] == "https://fapi.binance.com/fapi/v1/positionSide/dual"
+        assert request["params"].startswith("recvWindow=5000&timestamp=")

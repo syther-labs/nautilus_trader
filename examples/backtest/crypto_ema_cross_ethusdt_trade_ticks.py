@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,81 +14,88 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import time
 from decimal import Decimal
 
 import pandas as pd
 
-from nautilus_trader.backtest.data.providers import TestDataProvider
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
-from nautilus_trader.backtest.data.wranglers import TradeTickDataWrangler
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
-from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.examples.strategies.ema_cross import EMACross
-from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.examples.algorithms.twap import TWAPExecAlgorithm
+from nautilus_trader.examples.strategies.ema_cross_twap import EMACrossTWAP
+from nautilus_trader.examples.strategies.ema_cross_twap import EMACrossTWAPConfig
 from nautilus_trader.model.currencies import ETH
 from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OMSType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+from nautilus_trader.test_kit.providers import TestDataProvider
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 
 if __name__ == "__main__":
     # Configure backtest engine
     config = BacktestEngineConfig(
-        trader_id="BACKTESTER-001",
-        exec_engine={"allow_cash_positions": True},  # Retain original behaviour for now
+        trader_id=TraderId("BACKTESTER-001"),
+        logging=LoggingConfig(
+            log_level="INFO",
+            log_colors=True,
+            use_pyo3=False,
+        ),
     )
+
     # Build the backtest engine
     engine = BacktestEngine(config=config)
 
+    # Add a trading venue (multiple venues possible)
     BINANCE = Venue("BINANCE")
-    instrument_id = InstrumentId(symbol=Symbol("ETHUSDT"), venue=BINANCE)
-    ETHUSDT_BINANCE = TestInstrumentProvider.ethusdt_binance()
-
-    # Setup data
-    provider = TestDataProvider()
-    wrangler = TradeTickDataWrangler(instrument=ETHUSDT_BINANCE)
-    ticks = wrangler.process(provider.read_csv_ticks("binance-ethusdt-trades.csv"))
-    engine.add_instrument(ETHUSDT_BINANCE)
-    engine.add_ticks(ticks)
-
-    # Create a fill model (optional)
-    fill_model = FillModel(
-        prob_fill_on_limit=0.2,
-        prob_fill_on_stop=0.95,
-        prob_slippage=0.5,
-        random_seed=42,
-    )
-
-    # Add an exchange (multiple exchanges possible)
-    # Add starting balances for single-currency or multi-currency accounts
     engine.add_venue(
         venue=BINANCE,
-        oms_type=OMSType.NETTING,
-        account_type=AccountType.CASH,  # Spot cash account
+        oms_type=OmsType.NETTING,
+        book_type=BookType.L1_MBP,
+        account_type=AccountType.CASH,  # Spot CASH account (not for perpetuals or futures)
         base_currency=None,  # Multi-currency account
-        starting_balances=[Money(1_000_000, USDT), Money(10, ETH)],
-        fill_model=fill_model,
+        starting_balances=[Money(1_000_000.0, USDT), Money(10.0, ETH)],
+        trade_execution=True,  # Only use with L1_MBP book type or throttled book data
     )
+
+    # Add instruments
+    ETHUSDT_BINANCE = TestInstrumentProvider.ethusdt_binance()
+    engine.add_instrument(ETHUSDT_BINANCE)
+
+    # Add data
+    provider = TestDataProvider()
+    wrangler = TradeTickDataWrangler(instrument=ETHUSDT_BINANCE)
+    ticks = wrangler.process(provider.read_csv_ticks("binance/ethusdt-trades.csv"))
+    engine.add_data(ticks)
 
     # Configure your strategy
-    config = EMACrossConfig(
-        instrument_id=str(ETHUSDT_BINANCE.id),
-        bar_type="ETHUSDT.BINANCE-250-TICK-LAST-INTERNAL",
-        trade_size=Decimal("0.05"),
-        fast_ema=10,
-        slow_ema=20,
-        order_id_tag="001",
+    config = EMACrossTWAPConfig(
+        instrument_id=ETHUSDT_BINANCE.id,
+        bar_type=BarType.from_str("ETHUSDT.BINANCE-250-TICK-LAST-INTERNAL"),
+        trade_size=Decimal("0.10"),
+        fast_ema_period=10,
+        slow_ema_period=20,
+        twap_horizon_secs=10.0,
+        twap_interval_secs=2.5,
     )
+
     # Instantiate and add your strategy
-    strategy = EMACross(config=config)
+    strategy = EMACrossTWAP(config=config)
     engine.add_strategy(strategy=strategy)
 
-    input("Press Enter to continue...")  # noqa (always Python 3)
+    # Instantiate and add your execution algorithm
+    exec_algorithm = TWAPExecAlgorithm()
+    engine.add_exec_algorithm(exec_algorithm)
+
+    time.sleep(0.1)
+    input("Press Enter to continue...")
 
     # Run the engine (from start to end of data)
     engine.run()

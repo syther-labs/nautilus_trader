@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,58 +14,94 @@
 # -------------------------------------------------------------------------------------------------
 
 import pickle
-import socket
 from decimal import Decimal
-from typing import Dict, List, Optional, Union
 
 import pandas as pd
 
-from nautilus_trader.backtest.config import BacktestEngineConfig
+from nautilus_trader.accounting.error import AccountError
 from nautilus_trader.backtest.results import BacktestResult
+from nautilus_trader.common import Environment
+from nautilus_trader.common.component import is_logging_pyo3
+from nautilus_trader.common.config import InvalidConfiguration
+from nautilus_trader.config import BacktestEngineConfig
+from nautilus_trader.config import CacheConfig
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.data.config import DataEngineConfig
+from nautilus_trader.execution.config import ExecEngineConfig
+from nautilus_trader.model import BOOK_DATA_TYPES
+from nautilus_trader.model import NAUTILUS_PYO3_DATA_TYPES
+from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.system.kernel import NautilusKernel
+from nautilus_trader.trading.trader import Trader
 
-from cpython.datetime cimport datetime
-from libc.stdint cimport int64_t
+from cpython.object cimport PyObject
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.backtest.data_client cimport BacktestDataClient
 from nautilus_trader.backtest.data_client cimport BacktestMarketDataClient
 from nautilus_trader.backtest.exchange cimport SimulatedExchange
 from nautilus_trader.backtest.execution_client cimport BacktestExecClient
+from nautilus_trader.backtest.models cimport FeeModel
 from nautilus_trader.backtest.models cimport FillModel
 from nautilus_trader.backtest.models cimport LatencyModel
+from nautilus_trader.backtest.models cimport MakerTakerFeeModel
 from nautilus_trader.backtest.modules cimport SimulationModule
-from nautilus_trader.cache.cache cimport Cache
+from nautilus_trader.cache.base cimport CacheFacade
 from nautilus_trader.common.actor cimport Actor
-from nautilus_trader.common.clock cimport LiveClock
-from nautilus_trader.common.clock cimport TestClock
-from nautilus_trader.common.logging cimport Logger
-from nautilus_trader.common.logging cimport LoggerAdapter
-from nautilus_trader.common.logging cimport LogLevelParser
-from nautilus_trader.common.logging cimport log_memory
-from nautilus_trader.common.logging cimport nautilus_header
-from nautilus_trader.common.timer cimport TimeEventHandler
-from nautilus_trader.common.uuid cimport UUIDFactory
+from nautilus_trader.common.component cimport FORCE_STOP
+from nautilus_trader.common.component cimport LOGGING_PYO3
+from nautilus_trader.common.component cimport LiveClock
+from nautilus_trader.common.component cimport Logger
+from nautilus_trader.common.component cimport LogGuard
+from nautilus_trader.common.component cimport TestClock
+from nautilus_trader.common.component cimport TimeEvent
+from nautilus_trader.common.component cimport TimeEventHandler
+from nautilus_trader.common.component cimport get_component_clocks
+from nautilus_trader.common.component cimport log_level_from_str
+from nautilus_trader.common.component cimport log_sysinfo
+from nautilus_trader.common.component cimport set_backtest_force_stop
+from nautilus_trader.common.component cimport set_logging_clock_realtime_mode
+from nautilus_trader.common.component cimport set_logging_clock_static_mode
+from nautilus_trader.common.component cimport set_logging_clock_static_time
 from nautilus_trader.core.correctness cimport Condition
 from nautilus_trader.core.data cimport Data
+from nautilus_trader.core.datetime cimport format_iso8601
+from nautilus_trader.core.datetime cimport maybe_dt_to_unix_nanos
 from nautilus_trader.core.datetime cimport unix_nanos_to_dt
-from nautilus_trader.execution.engine cimport ExecutionEngine
-from nautilus_trader.infrastructure.cache cimport RedisCacheDatabase
-from nautilus_trader.model.c_enums.account_type cimport AccountType
-from nautilus_trader.model.c_enums.aggregation_source cimport AggregationSource
-from nautilus_trader.model.c_enums.book_type cimport BookType
-from nautilus_trader.model.c_enums.oms_type cimport OMSType
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.base cimport GenericData
-from nautilus_trader.model.data.tick cimport Tick
+from nautilus_trader.core.rust.backtest cimport TimeEventAccumulatorAPI
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_advance_clock
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_drain
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_drop
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_new
+from nautilus_trader.core.rust.common cimport TimeEventHandler_t
+from nautilus_trader.core.rust.common cimport logging_is_colored
+from nautilus_trader.core.rust.common cimport vec_time_event_handlers_drop
+from nautilus_trader.core.rust.core cimport CVec
+from nautilus_trader.core.rust.model cimport AccountType
+from nautilus_trader.core.rust.model cimport AggregationSource
+from nautilus_trader.core.rust.model cimport BookType
+from nautilus_trader.core.rust.model cimport OmsType
+from nautilus_trader.core.uuid cimport UUID4
+from nautilus_trader.execution.algorithm cimport ExecAlgorithm
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport CustomData
+from nautilus_trader.model.data cimport InstrumentClose
+from nautilus_trader.model.data cimport InstrumentStatus
+from nautilus_trader.model.data cimport OrderBookDelta
+from nautilus_trader.model.data cimport OrderBookDeltas
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.functions cimport book_type_to_str
 from nautilus_trader.model.identifiers cimport ClientId
+from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport TraderId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.instruments.base cimport Instrument
+from nautilus_trader.model.instruments.currency_pair cimport CurrencyPair
 from nautilus_trader.model.objects cimport Currency
-from nautilus_trader.model.orderbook.data cimport OrderBookData
-from nautilus_trader.portfolio.portfolio cimport Portfolio
-from nautilus_trader.risk.engine cimport RiskEngine
-from nautilus_trader.serialization.msgpack.serializer cimport MsgPackSerializer
-from nautilus_trader.trading.strategy cimport TradingStrategy
+from nautilus_trader.model.objects cimport Money
+from nautilus_trader.portfolio.base cimport PortfolioFacade
+from nautilus_trader.trading.strategy cimport Strategy
 
 
 cdef class BacktestEngine:
@@ -84,151 +120,254 @@ cdef class BacktestEngine:
         If `config` is not of type `BacktestEngineConfig`.
     """
 
-    def __init__(self, config: Optional[BacktestEngineConfig]=None):
+    def __init__(self, config: BacktestEngineConfig | None = None) -> None:
         if config is None:
             config = BacktestEngineConfig()
         Condition.type(config, BacktestEngineConfig, "config")
 
-        # Setup components
-        self._clock = LiveClock()
-        created_time = self._clock.utc_now()
-        self._test_clock = TestClock()
-        self._uuid_factory = UUIDFactory()
+        self._config: BacktestEngineConfig  = config
 
-        self._config = config
-        self._exchanges = {}
-
-        # Identifiers
-        self.trader_id = TraderId(config.trader_id)
-        self.machine_id = socket.gethostname()
-        self.instance_id = self._uuid_factory.generate()
-
-        # Data
-        self._data = []
-        self._data_len = 0
-        self._index = 0
+        # Set up components
+        self._accumulator = <TimeEventAccumulatorAPI>time_event_accumulator_new()
 
         # Run IDs
-        self.run_config_id = None
-        self.run_id = None
-        self.iteration = 0
+        self._run_config_id: str | None = None
+        self._run_id: UUID4 | None = None
+
+        # Venues and data
+        self._venues: dict[Venue, SimulatedExchange] = {}
+        self._has_data: set[InstrumentId] = set()
+        self._has_book_data: set[InstrumentId] = set()
+        self._data: list[Data] = []
+        self._data_len: uint64_t = 0
+        self._index: uint64_t = 0
+        self._iteration: uint64_t = 0
 
         # Timing
-        self.run_started = None
-        self.run_finished = None
-        self.backtest_start = None
-        self.backtest_end = None
+        self._run_started: pd.Timestamp | None = None
+        self._run_finished: pd.Timestamp | None = None
+        self._backtest_start: pd.Timestamp | None = None
+        self._backtest_end: pd.Timestamp | None = None
 
-        self._logger = Logger(
-            clock=LiveClock(),
-            trader_id=self.trader_id,
-            machine_id=self.machine_id,
-            instance_id=self.instance_id,
-        )
+        # Build core system kernel
+        self._kernel = NautilusKernel(name=type(self).__name__, config=config)
+        self._instance_id = self._kernel.instance_id
+        self._log = Logger(type(self).__name__)
 
-        self._log = LoggerAdapter(
-            component_name=type(self).__name__,
-            logger=self._logger,
-        )
+        self._data_engine: DataEngine = self._kernel.data_engine
 
-        self._test_logger = Logger(
-            clock=self._clock,
-            trader_id=self.trader_id,
-            machine_id=self.machine_id,
-            instance_id=self.instance_id,
-            level_stdout=LogLevelParser.from_str(config.log_level.upper()),
-            bypass=config.bypass_logging,
-        )
+    def __del__(self) -> None:
+        if self._accumulator._0 != NULL:
+            time_event_accumulator_drop(self._accumulator)
 
-        nautilus_header(self._log)
-        self._log.info("\033[36m=================================================================")
-        self._log.info("Building engine...")
+    @property
+    def trader_id(self) -> TraderId:
+        """
+        Return the engines trader ID.
 
-        ########################################################################
-        # Build platform
-        ########################################################################
-        if config.cache_database is None or config.cache_database.type == "in-memory":
-            cache_db = None
-        elif config.cache_database.type == "redis":
-            cache_db = RedisCacheDatabase(
-                trader_id=self.trader_id,
-                logger=self._test_logger,
-                serializer=MsgPackSerializer(timestamps_as_str=True),
-                config=config.cache_database,
-            )
-        else:
-            raise ValueError(
-                f"The cache_db_type in the configuration is unrecognized, "
-                f"can one of {{\'in-memory\', \'redis\'}}.",
-            )
+        Returns
+        -------
+        TraderId
 
-        self._msgbus = MessageBus(
-            trader_id=self.trader_id,
-            clock=self._test_clock,
-            logger=self._test_logger,
-        )
+        """
+        return self._kernel.trader_id
 
-        self._cache = Cache(
-            database=cache_db,
-            logger=self._test_logger,
-            config=config.cache,
-        )
-        # Set external facade
-        self.cache = self._cache
+    @property
+    def machine_id(self) -> str:
+        """
+        Return the engines machine ID.
 
-        self._portfolio = Portfolio(
-            msgbus=self._msgbus,
-            cache=self.cache,
-            clock=self._test_clock,
-            logger=self._test_logger,
-        )
-        # Set external facade
-        self.portfolio = self._portfolio
+        Returns
+        -------
+        str
 
-        self._data_engine = DataEngine(
-            msgbus=self._msgbus,
-            cache=self.cache,
-            clock=self._test_clock,
-            logger=self._test_logger,
-            config=config.data_engine,
-        )
+        """
+        return self._kernel.machine_id
 
-        self._exec_engine = ExecutionEngine(
-            msgbus=self._msgbus,
-            cache=self.cache,
-            clock=self._test_clock,
-            logger=self._test_logger,
-            config=config.exec_engine,
-        )
-        self._exec_engine.load_cache()
+    @property
+    def instance_id(self) -> UUID4:
+        """
+        Return the engines instance ID.
 
-        self._risk_engine = RiskEngine(
-            portfolio=self._portfolio,
-            msgbus=self._msgbus,
-            cache=self.cache,
-            clock=self._test_clock,
-            logger=self._test_logger,
-            config=config.risk_engine,
-        )
+        This is a unique identifier per initialized engine.
 
-        self.trader = Trader(
-            trader_id=self.trader_id,
-            msgbus=self._msgbus,
-            cache=self._cache,
-            portfolio=self.portfolio,
-            data_engine=self._data_engine,
-            risk_engine=self._risk_engine,
-            exec_engine=self._exec_engine,
-            clock=self._test_clock,
-            logger=self._test_logger,
-        )
+        Returns
+        -------
+        UUID4
 
-        self._log.info(
-            f"Initialized in "
-            f"{int(self._clock.delta(created_time).total_seconds() * 1000)}ms.",
-        )
+        """
+        return self._kernel.instance_id
 
-    def list_venues(self):
+    @property
+    def kernel(self) -> NautilusKernel:
+        """
+        Return the internal kernel for the engine.
+
+        Returns
+        -------
+        NautilusKernel
+
+        """
+        return self._kernel
+
+    @property
+    def logger(self) -> Logger:
+        """
+        Return the internal logger for the engine.
+
+        Returns
+        -------
+        Logger
+
+        """
+        return self._log
+
+    @property
+    def run_config_id(self) -> str:
+        """
+        Return the last backtest engine run config ID.
+
+        Returns
+        -------
+        str or ``None``
+
+        """
+        return self._run_config_id
+
+    @property
+    def run_id(self) -> UUID4:
+        """
+        Return the last backtest engine run ID (if run).
+
+        Returns
+        -------
+        UUID4 or ``None``
+
+        """
+        return self._run_id
+
+    @property
+    def iteration(self) -> int:
+        """
+        Return the backtest engine iteration count.
+
+        Returns
+        -------
+        int
+
+        """
+        return self._iteration
+
+    @property
+    def run_started(self) -> pd.Timestamp | None:
+        """
+        Return when the last backtest run started (if run).
+
+        Returns
+        -------
+        pd.Timestamp or ``None``
+
+        """
+        return self._run_started
+
+    @property
+    def run_finished(self) -> pd.Timestamp | None:
+        """
+        Return when the last backtest run finished (if run).
+
+        Returns
+        -------
+        pd.Timestamp or ``None``
+
+        """
+        return self._run_finished
+
+    @property
+    def backtest_start(self) -> pd.Timestamp | None:
+        """
+        Return the last backtest run time range start (if run).
+
+        Returns
+        -------
+        pd.Timestamp or ``None``
+
+        """
+        return self._backtest_start
+
+    @property
+    def backtest_end(self) -> pd.Timestamp | None:
+        """
+        Return the last backtest run time range end (if run).
+
+        Returns
+        -------
+        pd.Timestamp or ``None``
+
+        """
+        return self._backtest_end
+
+    @property
+    def trader(self) -> Trader:
+        """
+        Return the engines internal trader.
+
+        Returns
+        -------
+        Trader
+
+        """
+        return self._kernel.trader
+
+    @property
+    def cache(self) -> CacheFacade:
+        """
+        Return the engines internal read-only cache.
+
+        Returns
+        -------
+        CacheFacade
+
+        """
+        return self._kernel.cache
+
+    @property
+    def data(self) -> list[Data]:
+        """
+        Return the engines internal data stream.
+
+        Returns
+        -------
+        list[Data]
+
+        """
+        return self._data.copy()
+
+    @property
+    def portfolio(self) -> PortfolioFacade:
+        """
+        Return the engines internal read-only portfolio.
+
+        Returns
+        -------
+        PortfolioFacade
+
+        """
+        return self._kernel.portfolio
+
+    def get_log_guard(self) -> nautilus_pyo3.LogGuard | LogGuard | None:
+        """
+        Return the global logging systems log guard.
+
+        May return ``None`` if the logging system was already initialized.
+
+        Returns
+        -------
+        nautilus_pyo3.LogGuard | LogGuard | None
+
+        """
+        return self._kernel.get_log_guard()
+
+    def list_venues(self) -> list[Venue]:
         """
         Return the venues contained within the engine.
 
@@ -237,223 +376,342 @@ cdef class BacktestEngine:
         list[Venue]
 
         """
-        return list(self._exchanges)
+        return list(self._venues)
 
-    def get_exec_engine(self) -> ExecutionEngine:
+    def add_venue(
+        self,
+        venue: Venue,
+        oms_type: OmsType,
+        account_type: AccountType,
+        starting_balances: list[Money],
+        base_currency: Currency | None = None,
+        default_leverage: Decimal | None = None,
+        leverages: dict[InstrumentId, Decimal] | None = None,
+        modules: list[SimulationModule] | None = None,
+        fill_model: FillModel | None = None,
+        fee_model: FeeModel | None = None,
+        latency_model: LatencyModel | None = None,
+        book_type: BookType = BookType.L1_MBP,
+        routing: bool = False,
+        frozen_account: bool = False,
+        reject_stop_orders: bool = True,
+        support_gtd_orders: bool = True,
+        support_contingent_orders: bool = True,
+        use_position_ids: bool = True,
+        use_random_ids: bool = False,
+        use_reduce_only: bool = True,
+        use_message_queue: bool = True,
+        bar_execution: bool = True,
+        bar_adaptive_high_low_ordering: bool = False,
+        trade_execution: bool = False,
+    ) -> None:
         """
-        Return the execution engine for the backtest engine (used for testing).
-
-        Returns
-        -------
-        ExecutionEngine
-
-        """
-        return self._exec_engine
-
-    def add_generic_data(self, ClientId client_id, list data) -> None:
-        """
-        Add the generic data to the container.
+        Add a `SimulatedExchange` with the given parameters to the backtest engine.
 
         Parameters
         ----------
-        client_id : ClientId
-            The data client ID to associate with the generic data.
-        data : list[GenericData]
-            The data to add.
+        venue : Venue
+            The venue ID.
+        oms_type : OmsType {``HEDGING``, ``NETTING``}
+            The order management system type for the exchange. If ``HEDGING`` will
+            generate new position IDs.
+        account_type : AccountType
+            The account type for the exchange.
+        starting_balances : list[Money]
+            The starting account balances (specify one for a single asset account).
+        base_currency : Currency, optional
+            The account base currency for the client. Use ``None`` for multi-currency accounts.
+        default_leverage : Decimal, optional
+            The account default leverage (for margin accounts).
+        leverages : dict[InstrumentId, Decimal], optional
+            The instrument specific leverage configuration (for margin accounts).
+        modules : list[SimulationModule], optional
+            The simulation modules to load into the exchange.
+        fill_model : FillModel, optional
+            The fill model for the exchange.
+        fee_model : FeeModel, optional
+            The fee model for the venue.
+        latency_model : LatencyModel, optional
+            The latency model for the exchange.
+        book_type : BookType, default ``BookType.L1_MBP``
+            The default order book type.
+        routing : bool, default False
+            If multi-venue routing should be enabled for the execution client.
+        frozen_account : bool, default False
+            If the account for this exchange is frozen (balances will not change).
+        reject_stop_orders : bool, default True
+            If stop orders are rejected on submission if trigger price is in the market.
+        support_gtd_orders : bool, default True
+            If orders with GTD time in force will be supported by the venue.
+        support_contingent_orders : bool, default True
+            If contingent orders will be supported/respected by the venue.
+            If False, then it's expected the strategy will be managing any contingent orders.
+        use_position_ids : bool, default True
+            If venue position IDs will be generated on order fills.
+        use_random_ids : bool, default False
+            If all venue generated identifiers will be random UUID4's.
+        use_reduce_only : bool, default True
+            If the `reduce_only` execution instruction on orders will be honored.
+        use_message_queue : bool, default True
+            If an internal message queue should be used to process trading commands in sequence after
+            they have initially arrived. Setting this to False would be appropriate for real-time
+            sandbox environments, where we don't want to introduce additional latency of waiting for
+            the next data event before processing the trading command.
+        bar_execution : bool, default True
+            If bars should be processed by the matching engine(s) (and move the market).
+        bar_adaptive_high_low_ordering : bool, default False
+            Determines whether the processing order of bar prices is adaptive based on a heuristic.
+            This setting is only relevant when `bar_execution` is True.
+            If False, bar prices are always processed in the fixed order: Open, High, Low, Close.
+            If True, the processing order adapts with the heuristic:
+            - If High is closer to Open than Low then the processing order is Open, High, Low, Close.
+            - If Low is closer to Open than High then the processing order is Open, Low, High, Close.
+        trade_execution : bool, default False
+            If trades should be processed by the matching engine(s) (and move the market).
 
         Raises
         ------
         ValueError
-            If `data` is empty.
+            If `venue` is already registered with the engine.
 
         """
-        Condition.not_none(client_id, "client_id")
-        Condition.not_empty(data, "data")
-        Condition.list_type(data, GenericData, "data")
+        if modules is None:
+            modules = []
+        if fill_model is None:
+            fill_model = FillModel()
+        if fee_model is None:
+            fee_model = MakerTakerFeeModel()
+        Condition.not_none(venue, "venue")
+        Condition.not_in(venue, self._venues, "venue", "_venues")
+        Condition.not_empty(starting_balances, "starting_balances")
+        Condition.list_type(modules, SimulationModule, "modules")
+        Condition.type(fill_model, FillModel, "fill_model")
+        Condition.type(fee_model, FeeModel, "fee_model")
 
-        # Check client has been registered
-        self._add_data_client_if_not_exists(client_id)
+        if default_leverage is None:
+            if account_type == AccountType.MARGIN:
+                default_leverage = Decimal(10)
+            else:
+                default_leverage = Decimal(1)
 
-        # Add data
-        self._data = sorted(self._data + data, key=lambda x: x.ts_init)
-
-        self._log.info(
-            f"Added {len(data)} {type(data[0].data).__name__} "
-            f"GenericData element{'' if len(data) == 1 else 's'}.",
+        # Create exchange
+        exchange = SimulatedExchange(
+            venue=venue,
+            oms_type=oms_type,
+            account_type=account_type,
+            starting_balances=starting_balances,
+            base_currency=base_currency,
+            default_leverage=default_leverage,
+            leverages=leverages or {},
+            modules=modules,
+            portfolio=self.kernel.portfolio,
+            msgbus=self.kernel.msgbus,
+            cache=self.kernel.cache,
+            fill_model=fill_model,
+            fee_model=fee_model,
+            latency_model=latency_model,
+            book_type=book_type,
+            clock=self.kernel.clock,
+            frozen_account=frozen_account,
+            reject_stop_orders=reject_stop_orders,
+            support_gtd_orders=support_gtd_orders,
+            support_contingent_orders=support_contingent_orders,
+            use_position_ids=use_position_ids,
+            use_random_ids=use_random_ids,
+            use_reduce_only=use_reduce_only,
+            use_message_queue=use_message_queue,
+            bar_execution=bar_execution,
+            bar_adaptive_high_low_ordering=bar_adaptive_high_low_ordering,
+            trade_execution=trade_execution,
         )
+
+        self._venues[venue] = exchange
+
+        # Create execution client for exchange
+        exec_client = BacktestExecClient(
+            exchange=exchange,
+            msgbus=self.kernel.msgbus,
+            cache=self.kernel.cache,
+            clock=self.kernel.clock,
+            routing=routing,
+            frozen_account=frozen_account,
+        )
+
+        exchange.register_client(exec_client)
+        self.kernel.exec_engine.register_client(exec_client)
+
+        self._log.info(f"Added {exchange}")
+
+    def change_fill_model(self, Venue venue, FillModel model) -> None:
+        """
+        Change the fill model for the exchange of the given venue.
+
+        Parameters
+        ----------
+        venue : Venue
+            The venue of the simulated exchange.
+        model : FillModel
+            The fill model to change to.
+
+        """
+        Condition.not_none(venue, "venue")
+        Condition.not_none(model, "model")
+        Condition.is_in(venue, self._venues, "venue", "self._venues")
+
+        self._venues[venue].set_fill_model(model)
 
     def add_instrument(self, Instrument instrument) -> None:
         """
         Add the instrument to the backtest engine.
+
+        The instrument must be valid for its associated venue. For instance,
+        derivative instruments which would trade on margin cannot be added to
+        a venue with a ``CASH`` account.
 
         Parameters
         ----------
         instrument : Instrument
             The instrument to add.
 
+        Raises
+        ------
+        InvalidConfiguration
+            If the venue for the `instrument` has not been added to the engine.
+        InvalidConfiguration
+            If `instrument` is not valid for its associated venue.
+
         """
         Condition.not_none(instrument, "instrument")
+
+        if instrument.id.venue not in self._venues:
+            raise InvalidConfiguration(
+                "Cannot add an `Instrument` object without first adding its associated venue. "
+                f"Add the {instrument.id.venue} venue using the `add_venue` method."
+            )
+
+        # Validate instrument is correct for the venue
+        cdef SimulatedExchange venue = self._venues[instrument.id.venue]
+
+        if (
+            isinstance(instrument, CurrencyPair)
+            and venue.account_type != AccountType.MARGIN
+            and venue.base_currency is not None  # Single-currency account
+        ):
+            raise InvalidConfiguration(
+                f"Cannot add `CurrencyPair` instrument {instrument} "
+                "for a venue with a single-currency CASH account.",
+            )
 
         # Check client has been registered
         self._add_market_data_client_if_not_exists(instrument.id.venue)
 
         # Add data
-        self._data_engine.process(instrument)  # Adds to cache
+        self.kernel.data_engine.process(instrument)  # Adds to cache
+        self._venues[instrument.id.venue].add_instrument(instrument)
 
-        self._log.info(f"Added {instrument.id} Instrument.")
+        self._log.info(f"Added {instrument.id} Instrument")
 
-    def add_order_book_data(self, list data) -> None:
+    def add_data(
+        self,
+        list data,
+        ClientId client_id = None,
+        bint validate = True,
+        bint sort = True,
+    ) -> None:
         """
-        Add the order book data to the backtest engine.
+        Add the given `data` to the backtest engine.
 
         Parameters
         ----------
-        data : list[OrderBookData]
-            The order book data to add.
+        data : list[Data]
+            The data to add.
+        client_id : ClientId, optional
+            The client ID to associate with the data.
+        validate : bool, default True
+            If `data` should be validated
+            (recommended when adding data directly to the engine).
+        sort : bool, default True
+            If `data` should be sorted by `ts_init` with the rest of the stream after adding
+            (recommended when adding data directly to the engine).
 
         Raises
         ------
         ValueError
             If `data` is empty.
         ValueError
-            If `instrument_id` is not found in the cache.
+            If `data` contains objects which are not a type of `Data`.
+        ValueError
+            If `instrument_id` for the data is not found in the cache.
+        ValueError
+            If `data` elements do not have an `instrument_id` and `client_id` is ``None``.
+        TypeError
+            If `data` is a Rust PyO3 data type (cannot add directly to engine yet).
+
+        Warnings
+        --------
+        Assumes all data elements are of the same type. Adding lists of varying
+        data types could result in incorrect backtest logic.
+
+        Caution if adding data without `sort` being True, as this could lead to running backtests
+        on a stream which does not have monotonically increasing timestamps.
 
         """
         Condition.not_empty(data, "data")
-        Condition.list_type(data, OrderBookData, "data")
-        cdef OrderBookData first = data[0]
-        Condition.true(
-            first.instrument_id in self._cache.instrument_ids(),
-            "Instrument for given data not found in the cache. "
-            "Please call `add_instrument()` before adding related data.",
-        )
+        Condition.list_type(data, Data, "data")
 
-        # Check client has been registered
-        self._add_market_data_client_if_not_exists(first.instrument_id.venue)
+        if isinstance(data[0], NAUTILUS_PYO3_DATA_TYPES):
+            raise TypeError(
+                f"Cannot add data of type `{type(data[0]).__name__}` from pyo3 directly to engine. "
+                "This will be supported in a future release.",
+            )
 
-        # Add data
-        self._data = sorted(self._data + data, key=lambda x: x.ts_init)
+        cdef str data_added_str = "data"
 
-        self._log.info(
-            f"Added {len(data):,} {first.instrument_id} "
-            f"OrderBookData element{'' if len(data) == 1 else 's'}.",
-        )
+        if validate:
+            first = data[0]
+            if hasattr(first, "instrument_id"):
+                Condition.is_true(
+                    first.instrument_id in self.kernel.cache.instrument_ids(),
+                    f"`Instrument` {first.instrument_id} for the given data not found in the cache. "
+                    "Add the instrument through `add_instrument()` prior to adding related data.",
+                )
+                # Check client has been registered
+                self._add_market_data_client_if_not_exists(first.instrument_id.venue)
+                self._has_data.add(first.instrument_id)
+                data_added_str = f"{first.instrument_id} {type(first).__name__}"
+            elif isinstance(first, Bar):
+                Condition.is_true(
+                    first.bar_type.instrument_id in self.kernel.cache.instrument_ids(),
+                    f"`Instrument` {first.bar_type.instrument_id} for the given data not found in the cache. "
+                    "Add the instrument through `add_instrument()` prior to adding related data.",
+                )
+                Condition.equal(
+                    first.bar_type.aggregation_source,
+                    AggregationSource.EXTERNAL,
+                    "bar_type.aggregation_source",
+                    "required source",
+                )
+                self._has_data.add(first.bar_type.instrument_id)
+                data_added_str = f"{first.bar_type} {type(first).__name__}"
+            else:
+                Condition.not_none(client_id, "client_id")
+                # Check client has been registered
+                self._add_data_client_if_not_exists(client_id)
+                if isinstance(first, CustomData):
+                    data_added_str = f"{type(first.data).__name__} "
 
-    def add_ticks(self, list data) -> None:
-        """
-        Add the tick data to the backtest engine.
-
-        Parameters
-        ----------
-        data : list[Tick]
-            The tick data to add.
-
-        Raises
-        ------
-        ValueError
-            If `data` is empty.
-
-        """
-        Condition.not_empty(data, "data")
-        Condition.list_type(data, Tick, "data")
-        cdef Tick first = data[0]
-        Condition.true(
-            first.instrument_id in self._cache.instrument_ids(),
-            "Instrument for given data not found in the cache. "
-            "Please call `add_instrument()` before adding related data.",
-        )
-
-        # Check client has been registered
-        self._add_market_data_client_if_not_exists(first.instrument_id.venue)
-
-        # Add data
-        self._data = sorted(self._data + data, key=lambda x: x.ts_init)
-
-        self._log.info(
-            f"Added {len(data):,} {first.instrument_id} "
-            f"{type(first).__name__} element{'' if len(data) == 1 else 's'}.",
-        )
-
-    def add_data(self, list data) -> None:
-        """
-        Add the tick data to the backtest engine.
-
-        Parameters
-        ----------
-        data : list[Tick]
-            The tick data to add.
-
-        Raises
-        ------
-        ValueError
-            If `data` is empty.
-
-        """
-        Condition.not_empty(data, "data")
-        cdef Data first = data[0]
-        assert hasattr(first, 'instrument_id'), "added data must have an instrument_id property"
-        Condition.true(
-            first.instrument_id in self._cache.instrument_ids(),
-            "Instrument for given data not found in the cache. "
-            "Please call `add_instrument()` before adding related data.",
-        )
-
-        # Check client has been registered
-        self._add_market_data_client_if_not_exists(first.instrument_id.venue)
+            if type(first) in BOOK_DATA_TYPES:
+                self._has_book_data.add(first.instrument_id)
 
         # Add data
-        self._data = sorted(self._data + data, key=lambda x: x.ts_init)
+        self._data.extend(data)
+
+        if sort:
+            self._data = sorted(self._data, key=lambda x: x.ts_init)
+
 
         self._log.info(
-            f"Added {len(data):,} {first.instrument_id} "
-            f"{type(first).__name__} element{'' if len(data) == 1 else 's'}.",
-        )
-
-    def add_bars(self, list data) -> None:
-        """
-        Add the built bar data objects to the backtest engines. Suitable for
-        running externally aggregated bar subscriptions (bar type aggregation
-        source must be ``EXTERNAL``).
-
-        Parameters
-        ----------
-        data : list[Bar]
-            The bars to add.
-
-        Raises
-        ------
-        ValueError
-            If `bar_type.aggregation_source` is not equal to ``EXTERNAL``.
-        ValueError
-            If `data` is empty.
-        ValueError
-            If `instrument_id` is not found in the cache.
-
-        """
-        Condition.not_empty(data, "data")
-        Condition.list_type(data, Bar, "data")
-        cdef Bar first = data[0]
-        Condition.true(
-            first.type.instrument_id in self._cache.instrument_ids(),
-            "Instrument for given data not found in the cache. "
-            "Please call `add_instrument()` before adding related data.",
-        )
-        Condition.equal(
-            first.type.aggregation_source,
-            AggregationSource.EXTERNAL,
-            "bar_type.aggregation_source",
-            "required source",
-        )
-
-        # Check client has been registered
-        self._add_market_data_client_if_not_exists(first.type.instrument_id.venue)
-
-        # Add data
-        self._data = sorted(self._data + data, key=lambda x: x.ts_init)
-
-        self._log.info(
-            f"Added {len(data):,} {first.type} "
-            f"Bar element{'' if len(data) == 1 else 's'}.",
+            f"Added {len(data):_} {data_added_str} element{'' if len(data) == 1 else 's'}",
         )
 
     def dump_pickled_data(self) -> bytes:
@@ -488,238 +746,194 @@ cdef class BacktestEngine:
         self._data = pickle.loads(data)
 
         self._log.info(
-            f"Loaded {len(self._data):,} data "
-            f"element{'' if len(data) == 1 else 's'} from pickle.",
+            f"Loaded {len(self._data):_} data "
+            f"element{'' if len(data) == 1 else 's'} from pickle",
         )
-
-    def add_venue(
-        self,
-        Venue venue,
-        OMSType oms_type,
-        AccountType account_type,
-        Currency base_currency,
-        list starting_balances,
-        default_leverage=None,
-        dict leverages=None,
-        bint is_frozen_account=False,
-        list modules=None,
-        FillModel fill_model=None,
-        LatencyModel latency_model=None,
-        BookType book_type=BookType.L1_TBBO,
-        routing: bool=False,
-        bar_execution: bool = False,
-        reject_stop_orders: bool=True,
-    ) -> None:
-        """
-        Add a `SimulatedExchange` with the given parameters to the backtest engine.
-
-        Parameters
-        ----------
-        venue : Venue
-            The exchange venue ID.
-        oms_type : OMSType {``HEDGING``, ``NETTING``}
-            The order management system type for the exchange. If ``HEDGING`` will
-            generate new position IDs.
-        account_type : AccountType
-            The account type for the client.
-        base_currency : Currency, optional
-            The account base currency for the client. Use ``None`` for multi-currency accounts.
-        starting_balances : list[Money]
-            The starting account balances (specify one for a single asset account).
-        default_leverage : Decimal
-            The account default leverage (for margin accounts).
-        leverages : Dict[InstrumentId, Decimal]
-            The instrument specific leverage configuration (for margin accounts).
-        is_frozen_account : bool
-            If the account for this exchange is frozen (balances will not change).
-        modules : list[SimulationModule, optional
-            The simulation modules to load into the exchange.
-        fill_model : FillModel, optional
-            The fill model for the exchange.
-        latency_model : LatencyModel, optional
-            The latency model for the exchange.
-        book_type : BookType
-            The default order book type for fill modelling.
-        routing : bool
-            If multi-venue routing should be enabled for the execution client.
-        bar_execution : bool
-            If the exchange execution dynamics is based on bar data.
-        reject_stop_orders : bool
-            If stop orders are rejected on submission if in the market.
-
-        Raises
-        ------
-        ValueError
-            If an exchange of `venue` is already registered with the engine.
-
-        """
-        if modules is None:
-            modules = []
-        if fill_model is None:
-            fill_model = FillModel()
-        Condition.not_none(venue, "venue")
-        Condition.not_in(venue, self._exchanges, "venue", "_exchanges")
-        Condition.not_empty(starting_balances, "starting_balances")
-        Condition.list_type(modules, SimulationModule, "modules")
-        Condition.type_or_none(fill_model, FillModel, "fill_model")
-
-        # Create exchange
-        exchange = SimulatedExchange(
-            venue=venue,
-            oms_type=oms_type,
-            account_type=account_type,
-            base_currency=base_currency,
-            starting_balances=starting_balances,
-            default_leverage=default_leverage or Decimal(10),
-            leverages=leverages or {},
-            is_frozen_account=is_frozen_account,
-            instruments=self._cache.instruments(venue),
-            modules=modules,
-            cache=self._cache,
-            fill_model=fill_model,
-            latency_model=latency_model,
-            book_type=book_type,
-            clock=self._test_clock,
-            logger=self._test_logger,
-            bar_execution=bar_execution,
-            reject_stop_orders=reject_stop_orders,
-        )
-
-        self._exchanges[venue] = exchange
-
-        # Create execution client for exchange
-        exec_client = BacktestExecClient(
-            exchange=exchange,
-            msgbus=self._msgbus,
-            cache=self._cache,
-            clock=self._test_clock,
-            logger=self._test_logger,
-            routing=routing,
-            is_frozen_account=is_frozen_account,
-        )
-
-        exchange.register_client(exec_client)
-        self._exec_engine.register_client(exec_client)
-
-        self._log.info(f"Added {exchange}.")
-
-    def change_fill_model(self, Venue venue, FillModel model) -> None:
-        """
-        Change the fill model for the exchange of the given venue.
-
-        Parameters
-        ----------
-        venue : Venue
-            The venue of the simulated exchange.
-        model : FillModel
-            The fill model to change to.
-
-        """
-        Condition.not_none(venue, "venue")
-        Condition.not_none(model, "model")
-        Condition.is_in(venue, self._exchanges, "venue", "self._exchanges")
-
-        self._exchanges[venue].set_fill_model(model)
 
     def add_actor(self, actor: Actor) -> None:
-        # Checked inside trader
-        self.trader.add_actor(actor)
+        """
+        Add the given actor to the backtest engine.
 
-    def add_actors(self, actors: List[Actor]) -> None:
-        # Checked inside trader
-        self.trader.add_actors(actors)
+        Parameters
+        ----------
+        actor : Actor
+            The actor to add.
 
-    def add_strategy(self, strategy: TradingStrategy) -> None:
+        """
         # Checked inside trader
-        self.trader.add_strategy(strategy)
+        self.kernel.trader.add_actor(actor)
 
-    def add_strategies(self, strategies: List[TradingStrategy]) -> None:
+    def add_actors(self, actors: list[Actor]) -> None:
+        """
+        Add the given list of actors to the backtest engine.
+
+        Parameters
+        ----------
+        actors : list[Actor]
+            The actors to add.
+
+        """
         # Checked inside trader
-        self.trader.add_strategies(strategies)
+        self.kernel.trader.add_actors(actors)
+
+    def add_strategy(self, strategy: Strategy) -> None:
+        """
+        Add the given strategy to the backtest engine.
+
+        Parameters
+        ----------
+        strategy : Strategy
+            The strategy to add.
+
+        """
+        # Checked inside trader
+        self.kernel.trader.add_strategy(strategy)
+
+    def add_strategies(self, strategies: list[Strategy]) -> None:
+        """
+        Add the given list of strategies to the backtest engine.
+
+        Parameters
+        ----------
+        strategies : list[Strategy]
+            The strategies to add.
+
+        """
+        # Checked inside trader
+        self.kernel.trader.add_strategies(strategies)
+
+    def add_exec_algorithm(self, exec_algorithm: ExecAlgorithm) -> None:
+        """
+        Add the given execution algorithm to the backtest engine.
+
+        Parameters
+        ----------
+        exec_algorithm : ExecAlgorithm
+            The execution algorithm to add.
+
+        """
+        # Checked inside trader
+        self.kernel.trader.add_exec_algorithm(exec_algorithm)
+
+    def add_exec_algorithms(self, exec_algorithms: list[ExecAlgorithm]) -> None:
+        """
+        Add the given list of execution algorithms to the backtest engine.
+
+        Parameters
+        ----------
+        exec_algorithms : list[ExecAlgorithm]
+            The execution algorithms to add.
+
+        """
+        # Checked inside trader
+        self.kernel.trader.add_exec_algorithms(exec_algorithms)
 
     def reset(self) -> None:
         """
         Reset the backtest engine.
 
         All stateful fields are reset to their initial value.
+
+        Note: instruments and data are not dropped/reset, this can be done through a
+        separate call to `.clear_data()` if desired.
+
         """
-        self._log.debug(f"Resetting...")
+        self._log.debug(f"Resetting")
 
-        if self.trader.is_running_c():
+        if self.kernel.trader.is_running:
             # End current backtest run
-            self._end()
-
-        # Change logger clock back to live clock for consistent time stamping
-        self._test_logger.change_clock_c(self._clock)
+            self.end()
 
         # Reset DataEngine
-        if self._data_engine.is_running_c():
-            self._data_engine.stop()
-        self._data_engine.reset()
+        if self.kernel.data_engine.is_running:
+            self.kernel.data_engine.stop()
+        self.kernel.data_engine.reset()
 
         # Reset ExecEngine
-        if self._exec_engine.is_running_c():
-            self._exec_engine.stop()
-        if self._config.cache_database is not None and self._config.cache_database.flush:
-            self._exec_engine.flush_db()
-        self._exec_engine.reset()
+        if self.kernel.exec_engine.is_running:
+            self.kernel.exec_engine.stop()
+        self.kernel.exec_engine.reset()
 
         # Reset RiskEngine
-        if self._risk_engine.is_running_c():
-            self._risk_engine.stop()
-        self._risk_engine.reset()
+        if self.kernel.risk_engine.is_running:
+            self.kernel.risk_engine.stop()
+        self.kernel.risk_engine.reset()
 
-        self.trader.reset()
+        # Reset Emulator
+        if self.kernel.emulator.is_running:
+            self.kernel.emulator.stop()
+        self.kernel.emulator.reset()
 
-        for exchange in self._exchanges.values():
+        self.kernel.trader.reset()
+
+        for exchange in self._venues.values():
             exchange.reset()
 
         # Reset run IDs
-        self.run_config_id = None
-        self.run_id = None
+        self._run_config_id = None
+        self._run_id = None
 
         # Reset timing
-        self.iteration = 0
-        self.run_started = None
-        self.run_finished = None
-        self.backtest_start = None
-        self.backtest_end = None
+        self._iteration = 0
+        self._index = 0
+        self._run_started = None
+        self._run_finished = None
+        self._backtest_start = None
+        self._backtest_end = None
 
-        self._log.info("Reset.")
+        self._log.info("Reset")
 
-    def clear_data(self):
+    def clear_data(self) -> None:
         """
         Clear the engines internal data stream.
+
+        Does not clear added instruments.
+
         """
+        self._has_data.clear()
+        self._has_book_data.clear()
         self._data.clear()
         self._data_len = 0
         self._index = 0
+
+    def clear_actors(self) -> None:
+        """
+        Clear all actors from the engines internal trader.
+
+        """
+        self._kernel.trader.clear_actors()
+
+    def clear_strategies(self) -> None:
+        """
+        Clear all trading strategies from the engines internal trader.
+
+        """
+        self._kernel.trader.clear_strategies()
+
+    def clear_exec_algorithms(self) -> None:
+        """
+        Clear all execution algorithms from the engines internal trader.
+
+        """
+        self._kernel.trader.clear_exec_algorithms()
 
     def dispose(self) -> None:
         """
         Dispose of the backtest engine by disposing the trader and releasing system resources.
 
-        This method is idempotent and irreversible. No other methods should be
-        called after disposal.
+        Calling this method multiple times has the same effect as calling it once (it is idempotent).
+        Once called, it cannot be reversed, and no other methods should be called on this instance.
+
         """
-        self.trader.dispose()
-
-        if self._data_engine.is_running_c():
-            self._data_engine.stop()
-        if self._exec_engine.is_running_c():
-            self._exec_engine.stop()
-        if self._risk_engine.is_running_c():
-            self._risk_engine.stop()
-
-        self._data_engine.dispose()
-        self._exec_engine.dispose()
-        self._risk_engine.dispose()
+        self.clear_data()
+        self.kernel.dispose()
 
     def run(
         self,
-        start: Union[datetime, str, int]=None,
-        end: Union[datetime, str, int]=None,
-        run_config_id: str=None,
+        start: datetime | str | int | None = None,
+        end: datetime | str | int | None = None,
+        run_config_id: str | None = None,
+        streaming: bool = False,
     ) -> None:
         """
         Run a backtest.
@@ -727,16 +941,29 @@ cdef class BacktestEngine:
         At the end of the run the trader and strategies will be stopped, then
         post-run analysis performed.
 
+        For datasets larger than available memory, use `streaming` mode with the
+        following sequence:
+        - 1. Add initial data batch and strategies
+        - 2. Call `run(streaming=True)`
+        - 3. Call `clear_data()`
+        - 4. Add next batch of data stream
+        - 5. Call `run(streaming=False)` or `end()` when processing the final batch
+
         Parameters
         ----------
-        start : Union[datetime, str, int], optional
-            The start datetime (UTC) for the backtest run. If ``None`` engine runs
-            from the start of the data.
-        end : Union[datetime, str, int], optional
-            The end datetime (UTC) for the backtest run. If ``None`` engine runs
-            to the end of the data.
+        start : datetime or str or int, optional
+            The start datetime (UTC) for the backtest run.
+            If ``None`` engine runs from the start of the data.
+        end : datetime or str or int, optional
+            The end datetime (UTC) for the backtest run.
+            If ``None`` engine runs to the end of the data.
         run_config_id : str, optional
             The tokenized `BacktestRunConfig` ID.
+        streaming : bool, default False
+            Controls data loading and processing mode:
+            - If False (default): Loads all data at once.
+              This is currently the only supported mode for custom data (e.g., option Greeks).
+            - If True, loads data in chunks for memory-efficient processing of large datasets.
 
         Raises
         ------
@@ -747,59 +974,45 @@ cdef class BacktestEngine:
 
         """
         self._run(start, end, run_config_id)
-        self._end()
+        if not streaming:
+            self.end()
 
-    def run_streaming(
-        self,
-        start: Union[datetime, str, int]=None,
-        end: Union[datetime, str, int]=None,
-        run_config_id: str=None,
-    ):
+    def end(self):
         """
-        Run a backtest in streaming mode.
+        Manually end the backtest.
 
-        If more data than can fit in memory is to be run through the backtest
-        engine, then streaming mode can be utilized. The expected sequence is as
-        follows:
-        - Add initial data batch and strategies.
-        - Call `run_streaming()`.
-        - Call `clear_data()`.
-        - Add next batch of data stream.
-        - Call `run_streaming()`.
-        - Call `end_streaming()` when there is no more data to run on.
-
-        Parameters
-        ----------
-        start : Union[datetime, str, int], optional
-            The start datetime (UTC) for the current batch of data. If ``None``
-            engine runs from the start of the data.
-        end : Union[datetime, str, int], optional
-            The end datetime (UTC) for the current batch of data. If ``None`` engine runs
-            to the end of the data.
-        run_config_id : str, optional
-            The tokenized backtest run configuration ID.
-
-        Raises
-        ------
-        ValueError
-            If no data has been added to the engine.
-        ValueError
-            If the `start` is >= the `end` datetime.
+        Notes
+        -----
+        Only required if you have previously been running with streaming.
 
         """
-        self._run(start, end, run_config_id)
+        if self.kernel.trader.is_running:
+            self.kernel.trader.stop()
+        if self.kernel.data_engine.is_running:
+            self.kernel.data_engine.stop()
+        if self.kernel.risk_engine.is_running:
+            self.kernel.risk_engine.stop()
+        if self.kernel.exec_engine.is_running:
+            self.kernel.exec_engine.stop()
+        if self.kernel.emulator.is_running:
+            self.kernel.emulator.stop()
 
-    def end_streaming(self):
-        """
-        End the backtest streaming run.
+        try:
+            # Process remaining messages
+            for exchange in self._venues.values():
+                exchange.process(self.kernel.clock.timestamp_ns())
+        except AccountError:
+            pass
 
-        The following sequence of events will occur:
-         - The trader will be stopped which in turn stops the strategies.
-         - The exchanges will process all pending messages.
-         - Post-run analysis is performed.
+        self._run_finished = pd.Timestamp.utcnow()
+        self._backtest_end = self.kernel.clock.utc_now()
 
-        """
-        self._end()
+        # Change logger clock back to real-time for consistent time stamping
+        set_logging_clock_realtime_mode()
+        if LOGGING_PYO3:
+            nautilus_pyo3.logging_clock_set_realtime_mode()
+
+        self._log_post_run()
 
     def get_result(self):
         """
@@ -810,38 +1023,56 @@ cdef class BacktestEngine:
         BacktestResult
 
         """
-        stats_pnls: Dict[str, Dict[str, float]] = {}
+        stats_pnls: dict[str, dict[str, float]] = {}
 
-        for currency in self.trader.analyzer.currencies:
-            stats_pnls[currency.code] = self.trader.analyzer.get_performance_stats_pnls(currency)
+        for currency in self.kernel.portfolio.analyzer.currencies:
+            stats_pnls[currency.code] = self.kernel.portfolio.analyzer.get_performance_stats_pnls(currency)
 
         return BacktestResult(
-            trader_id=self.trader_id.value,
-            machine_id=self.machine_id,
-            run_config_id=self.run_config_id,
-            instance_id=self.instance_id.value,
-            run_id=self.run_id.value,
-            run_started=self.run_started,
-            run_finished=self.run_finished,
-            backtest_start=self.backtest_start,
-            backtest_end=self.backtest_end,
-            elapsed_time=(self.backtest_end - self.backtest_start).total_seconds(),
-            iterations=self.iteration,
-            total_events=self._exec_engine.event_count,
-            total_orders=self.cache.orders_total_count(),
-            total_positions=self.cache.positions_total_count(),
+            trader_id=self._kernel.trader_id.value,
+            machine_id=self._kernel.machine_id,
+            run_config_id=self._run_config_id,
+            instance_id=self._kernel.instance_id.value,
+            run_id=self._run_id.to_str() if self._run_id is not None else None,
+            run_started=maybe_dt_to_unix_nanos(self._run_started),
+            run_finished=maybe_dt_to_unix_nanos(self.run_finished),
+            backtest_start=maybe_dt_to_unix_nanos(self._backtest_start),
+            backtest_end=maybe_dt_to_unix_nanos(self._backtest_end),
+            elapsed_time=(self._backtest_end - self._backtest_start).total_seconds(),
+            iterations=self._index,
+            total_events=self._kernel.exec_engine.event_count,
+            total_orders=self._kernel.cache.orders_total_count(),
+            total_positions=self._kernel.cache.positions_total_count(),
             stats_pnls=stats_pnls,
-            stats_returns=self.trader.analyzer.get_performance_stats_returns(),
+            stats_returns=self._kernel.portfolio.analyzer.get_performance_stats_returns(),
         )
 
     def _run(
         self,
-        start: Union[datetime, str, int]=None,
-        end: Union[datetime, str, int]=None,
-        run_config_id: str=None,
+        start: datetime | str | int | None = None,
+        end: datetime | str | int | None = None,
+        run_config_id: str | None = None,
     ):
-        cdef int64_t start_ns
-        cdef int64_t end_ns
+        # Validate data
+        cdef:
+            SimulatedExchange exchange
+            InstrumentId instrument_id
+            bint has_data
+            bint missing_book_data
+            bint book_type_has_depth
+        for exchange in self._venues.values():
+            for instrument_id in exchange.instruments:
+                has_data = instrument_id in self._has_data
+                missing_book_data = instrument_id not in self._has_book_data
+                book_type_has_depth = exchange.book_type > BookType.L1_MBP
+                if book_type_has_depth and has_data and missing_book_data:
+                    raise InvalidConfiguration(
+                        f"No order book data found for instrument '{instrument_id }' when `book_type` is '{book_type_to_str(exchange.book_type)}'. "
+                        "Set the venue `book_type` to 'L1_MBP' (for top-of-book data like quotes, trades, and bars) or provide order book data for this instrument."
+                    )
+
+        cdef uint64_t start_ns
+        cdef uint64_t end_ns
         # Time range check and set
         if start is None:
             # Set `start` to start of data
@@ -849,38 +1080,58 @@ cdef class BacktestEngine:
             start = unix_nanos_to_dt(start_ns)
         else:
             start = pd.to_datetime(start, utc=True)
-            start_ns = int(start.to_datetime64())
+            start_ns = start.value
         if end is None:
             # Set `end` to end of data
             end_ns = self._data[-1].ts_init
             end = unix_nanos_to_dt(end_ns)
         else:
             end = pd.to_datetime(end, utc=True)
-            end_ns = int(end.to_datetime64())
-        Condition.true(start_ns < end_ns, "start was >= end")
+            end_ns = end.value
+        Condition.is_true(start_ns <= end_ns, "start was > end")
         Condition.not_empty(self._data, "data")
 
         # Set clocks
-        self._test_clock.set_time(start_ns)
-        for actor in self.trader.actors_c():
-            actor.clock.set_time(start_ns)
-        for strategy in self.trader.strategies_c():
-            strategy.clock.set_time(start_ns)
+        cdef TestClock clock
+        for clock in get_component_clocks(self._instance_id):
+            clock.set_time(start_ns)
 
-        cdef SimulatedExchange exchange
-        if self.iteration == 0:
+        if self._iteration == 0:
             # Initialize run
-            self.run_config_id = run_config_id  # Can be None
-            self.run_id = self._uuid_factory.generate()
-            self.run_started = self._clock.utc_now()
-            self.backtest_start = start
-            for exchange in self._exchanges.values():
+            self._run_config_id = run_config_id  # Can be None
+            self._run_id = UUID4()
+            self._run_started = pd.Timestamp.utcnow()
+            self._backtest_start = start
+            for exchange in self._venues.values():
                 exchange.initialize_account()
-            self._data_engine.start()
-            self._exec_engine.start()
-            self.trader.start()
+                ###################################################################################
+                open_orders = self._kernel.cache.orders_open(venue=exchange.id)
+                for order in open_orders:
+                    if order.is_emulated:
+                        # Order should be loaded in the emulator already
+                        continue
+                    matching_engine = exchange.get_matching_engine(order.instrument_id)
+                    if matching_engine is None:
+                        self._log.error(
+                            f"No matching engine for {order.instrument_id} to process {order}",
+                        )
+                        continue
+                    matching_engine.process_order(order, order.account_id)
+                ###################################################################################
+
+            # Reset any previously set FORCE_STOP
+            set_backtest_force_stop(False)
+
+            # Common kernel start-up sequence
+            self._kernel.start()
+
             # Change logger clock for the run
-            self._test_logger.change_clock_c(self._test_clock)
+            self._kernel.clock.set_time(start_ns)
+            set_logging_clock_static_mode()
+            set_logging_clock_static_time(start_ns)
+            if LOGGING_PYO3:
+                nautilus_pyo3.logging_clock_set_static_mode()
+                nautilus_pyo3.logging_clock_set_static_time(start_ns)
             self._log_pre_run()
 
         self._log_run(start, end)
@@ -889,205 +1140,353 @@ cdef class BacktestEngine:
         self._data_len = len(self._data)
 
         # Set starting index
-        cdef int i
+        cdef uint64_t i
         for i in range(self._data_len):
             if start_ns <= self._data[i].ts_init:
                 self._index = i
                 break
 
         # -- MAIN BACKTEST LOOP -----------------------------------------------#
+        cdef uint64_t last_ns = 0
+        cdef uint64_t raw_handlers_count = 0
         cdef Data data = self._next()
-        while data is not None:
-            if data.ts_init > end_ns:
-                break
-            self._advance_time(data.ts_init)
-            self._data_engine.process(data)
-            if isinstance(data, OrderBookData):
-                self._exchanges[data.instrument_id.venue].process_order_book(data)
-            elif isinstance(data, Tick):
-                self._exchanges[data.instrument_id.venue].process_tick(data)
-            elif isinstance(data, Bar):
-                self._exchanges[data.type.instrument_id.venue].process_bar(data)
-            for exchange in self._exchanges.values():
-                exchange.process(data.ts_init)
-            self.iteration += 1
-            data = self._next()
+        cdef CVec raw_handlers
+        try:
+            while data is not None:
+                if data.ts_init > end_ns:
+                    # End of backtest
+                    break
+                if data.ts_init > last_ns:
+                    # Advance clocks to the next data time
+                    raw_handlers = self._advance_time(data.ts_init)
+                    raw_handlers_count = raw_handlers.len
+
+                # Process data through exchange
+                if isinstance(data, OrderBookDelta):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_order_book_delta(data)
+                elif isinstance(data, OrderBookDeltas):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_order_book_deltas(data)
+                elif isinstance(data, QuoteTick):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_quote_tick(data)
+                elif isinstance(data, TradeTick):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_trade_tick(data)
+                elif isinstance(data, Bar):
+                    exchange = self._venues[data.bar_type.instrument_id.venue]
+                    exchange.process_bar(data)
+                elif isinstance(data, InstrumentClose):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_instrument_close(data)
+                elif isinstance(data, InstrumentStatus):
+                    exchange = self._venues[data.instrument_id.venue]
+                    exchange.process_instrument_status(data)
+
+                self._data_engine.process(data)
+
+                # Process all exchange messages
+                for exchange in self._venues.values():
+                    exchange.process(data.ts_init)
+
+                last_ns = data.ts_init
+                data = self._next()
+                if data is None or data.ts_init > last_ns:
+                    # Finally process the time events
+                    self._process_raw_time_event_handlers(
+                        raw_handlers,
+                        last_ns,
+                        only_now=True,
+                    )
+
+                    # Drop processed event handlers
+                    vec_time_event_handlers_drop(raw_handlers)
+                    raw_handlers_count = 0
+
+                self._iteration += 1
+        except AccountError as e:
+            set_backtest_force_stop(True)
+            self._log.error(f"Stopping backtest from {e}")
         # ---------------------------------------------------------------------#
+
+        if FORCE_STOP:
+            return
+
         # Process remaining messages
-        for exchange in self._exchanges.values():
-            exchange.process(self._test_clock.timestamp_ns())
-        # ---------------------------------------------------------------------#
+        for exchange in self._venues.values():
+            exchange.process(self.kernel.clock.timestamp_ns())
 
-    def _end(self):
-        self.trader.stop()
-        # Process remaining messages
-        for exchange in self._exchanges.values():
-            exchange.process(self._test_clock.timestamp_ns())
-
-        self.run_finished = self._clock.utc_now()
-        self.backtest_end = self._test_clock.utc_now()
-
-        self._log_post_run()
+        # Process remaining time events
+        if raw_handlers_count > 0:
+            self._process_raw_time_event_handlers(
+                raw_handlers,
+                last_ns,
+                only_now=True,
+                asof_now=True,
+            )
+            vec_time_event_handlers_drop(raw_handlers)
 
     cdef Data _next(self):
-        cdef int64_t cursor = self._index
+        cdef uint64_t cursor = self._index
         self._index += 1
         if cursor < self._data_len:
             return self._data[cursor]
 
-    cdef void _advance_time(self, int64_t now_ns) except *:
-        cdef list time_events = []  # type: list[TimeEventHandler]
+    cdef CVec _advance_time(self, uint64_t ts_now):
+        cdef list[TestClock] clocks = get_component_clocks(self._instance_id)
+
+        cdef TestClock clock
+        for clock in clocks:
+            time_event_accumulator_advance_clock(
+                &self._accumulator,
+                &clock._mem,
+                ts_now,
+                False,
+            )
+
+        cdef CVec raw_handlers = time_event_accumulator_drain(&self._accumulator)
+
+        # Handle all events prior to the `ts_now`
+        self._process_raw_time_event_handlers(
+            raw_handlers,
+            ts_now,
+            only_now=False,
+        )
+
+        # Set all clocks to now
+        set_logging_clock_static_time(ts_now)
+        if LOGGING_PYO3:
+            nautilus_pyo3.logging_clock_set_static_time(ts_now)
+
+        for clock in clocks:
+            clock.set_time(ts_now)
+
+        # Return all remaining events to be handled (at `ts_now`)
+        return raw_handlers
+
+    cdef void _process_raw_time_event_handlers(
+        self,
+        CVec raw_handler_vec,
+        uint64_t ts_now,
+        bint only_now,
+        bint asof_now = False,
+    ):
+        cdef TimeEventHandler_t* raw_handlers = <TimeEventHandler_t*>raw_handler_vec.ptr
         cdef:
-            Actor actor
-            TradingStrategy strategy
-            cdef TimeEventHandler event_handler
-        for actor in self.trader.actors_c():
-            time_events += actor.clock.advance_time(now_ns)
-        for strategy in self.trader.strategies_c():
-            time_events += strategy.clock.advance_time(now_ns)
-        for event_handler in sorted(time_events):
-            self._test_clock.set_time(event_handler.event.ts_event)
-            event_handler.handle()
-        self._test_clock.set_time(now_ns)
+            uint64_t i
+            uint64_t ts_event_init
+            uint64_t ts_last_init = 0
+            TimeEventHandler_t raw_handler
+            TimeEvent event
+            TestClock clock
+            PyObject *raw_callback
+            object callback
+            SimulatedExchange exchange
+        for i in range(raw_handler_vec.len):
+            if FORCE_STOP:
+                # The FORCE_STOP flag has already been set,
+                # no further time events should be processed.
+                return
+
+            raw_handler = <TimeEventHandler_t>raw_handlers[i]
+            ts_event_init = raw_handler.event.ts_init
+            if should_skip_time_event(ts_event_init, ts_now, only_now, asof_now):
+                continue  # Do not process event
+
+            # Set all clocks to event timestamp
+            set_logging_clock_static_time(ts_event_init)
+            if LOGGING_PYO3:
+                nautilus_pyo3.logging_clock_set_static_time(ts_event_init)
+
+            for clock in get_component_clocks(self._instance_id):
+                clock.set_time(ts_event_init)
+
+            event = TimeEvent.from_mem_c(raw_handler.event)
+
+            # Cast raw `PyObject *` to a `PyObject`
+            raw_callback = <PyObject *>raw_handler.callback_ptr
+            callback = <object>raw_callback
+            callback(event)
+
+            if ts_event_init != ts_last_init:
+                # Process exchange messages
+                ts_last_init = ts_event_init
+                for exchange in self._venues.values():
+                    exchange.process(ts_event_init)
+
+    def _get_log_color_code(self):
+        return "\033[36m" if logging_is_colored() else ""
 
     def _log_pre_run(self):
-        log_memory(self._log)
+        if is_logging_pyo3():
+            nautilus_pyo3.log_sysinfo(component=type(self).__name__)
+        else:
+            log_sysinfo(component=type(self).__name__)
 
-        for exchange in self._exchanges.values():
+        cdef str color = self._get_log_color_code()
+
+        for exchange in self._venues.values():
             account = exchange.exec_client.get_account()
-            self._log.info("\033[36m=================================================================")
-            self._log.info(f"\033[36mSimulatedVenue {exchange.id}")
-            self._log.info("\033[36m=================================================================")
+            self._log.info(f"{color}=================================================================")
+            self._log.info(f"{color} SimulatedVenue {exchange.id}")
+            self._log.info(f"{color}=================================================================")
             self._log.info(f"{repr(account)}")
-            self._log.info("\033[36m-----------------------------------------------------------------")
+            self._log.info(f"{color}-----------------------------------------------------------------")
             self._log.info(f"Balances starting:")
             if exchange.is_frozen_account:
                 self._log.warning(f"ACCOUNT FROZEN")
             else:
                 for b in account.starting_balances().values():
-                    self._log.info(b.to_str())
+                    self._log.info(b.to_formatted_str())
 
     def _log_run(self, start: pd.Timestamp, end: pd.Timestamp):
-        self._log.info("\033[36m=================================================================")
-        self._log.info("\033[36m BACKTEST RUN")
-        self._log.info("\033[36m=================================================================")
-        self._log.info(f"Run config ID:  {self.run_config_id}")
-        self._log.info(f"Run ID:         {self.run_id}")
-        self._log.info(f"Run started:    {self.run_started}")
-        self._log.info(f"Backtest start: {self.backtest_start}")
-        self._log.info(f"Batch start:    {start}.")
-        self._log.info(f"Batch end:      {end}.")
-        self._log.info("\033[36m-----------------------------------------------------------------")
+        cdef str color = self._get_log_color_code()
+
+        self._log.info(f"{color}=================================================================")
+        self._log.info(f"{color} BACKTEST RUN")
+        self._log.info(f"{color}=================================================================")
+        self._log.info(f"Run config ID:  {self._run_config_id}")
+        self._log.info(f"Run ID:         {self._run_id}")
+        self._log.info(f"Run started:    {format_iso8601(self._run_started)}")
+        self._log.info(f"Backtest start: {format_iso8601(self._backtest_start)}")
+        self._log.info(f"Batch start:    {format_iso8601(start)}")
+        self._log.info(f"Batch end:      {format_iso8601(end)}")
+        self._log.info(f"{color}-----------------------------------------------------------------")
 
     def _log_post_run(self):
-        self._log.info("\033[36m=================================================================")
-        self._log.info("\033[36m BACKTEST POST-RUN")
-        self._log.info("\033[36m=================================================================")
-        self._log.info(f"Run config ID:  {self.run_config_id}")
-        self._log.info(f"Run ID:         {self.run_id}")
-        self._log.info(f"Run started:    {self.run_started}")
-        self._log.info(f"Run finished:   {self.run_finished}")
-        self._log.info(f"Elapsed time:   {self.run_finished - self.run_started}")
-        self._log.info(f"Backtest start: {self.backtest_start}")
-        self._log.info(f"Backtest end:   {self.backtest_end}")
-        self._log.info(f"Backtest range: {self.backtest_end - self.backtest_start}")
-        self._log.info(f"Iterations: {self.iteration:,}")
-        self._log.info(f"Total events: {self._exec_engine.event_count:,}")
-        self._log.info(f"Total orders: {self.cache.orders_total_count():,}")
-        self._log.info(f"Total positions: {self.cache.positions_total_count():,}")
+        if self._run_finished and self._run_started:
+            elapsed_time = self._run_finished - self._run_started
+        else:
+            elapsed_time = None
+
+        if self._backtest_end and self._backtest_start:
+            backtest_range = self._backtest_end - self._backtest_start
+        else:
+            backtest_range = None
+
+        cdef str color = self._get_log_color_code()
+
+        self._log.info(f"{color}=================================================================")
+        self._log.info(f"{color} BACKTEST POST-RUN")
+        self._log.info(f"{color}=================================================================")
+        self._log.info(f"Run config ID:  {self._run_config_id}")
+        self._log.info(f"Run ID:         {self._run_id}")
+        self._log.info(f"Run started:    {format_iso8601(self._run_started)}")
+        self._log.info(f"Run finished:   {format_iso8601(self._run_finished)}")
+        self._log.info(f"Elapsed time:   {elapsed_time}")
+        self._log.info(f"Backtest start: {format_iso8601(self._backtest_start)}")
+        self._log.info(f"Backtest end:   {format_iso8601(self._backtest_end)}")
+        self._log.info(f"Backtest range: {backtest_range}")
+        self._log.info(f"Iterations: {self._iteration:_}")
+        self._log.info(f"Total events: {self._kernel.exec_engine.event_count:_}")
+        self._log.info(f"Total orders: {self._kernel.cache.orders_total_count():_}")
+
+        # Get all positions for venue
+        cdef list positions = []
+        for position in self._kernel.cache.positions() + self._kernel.cache.position_snapshots():
+            positions.append(position)
+
+        self._log.info(f"Total positions: {len(positions):_}")
 
         if not self._config.run_analysis:
             return
 
-        for exchange in self._exchanges.values():
-            account = exchange.exec_client.get_account()
-            self._log.info("\033[36m=================================================================")
-            self._log.info(f"\033[36mSimulatedVenue {exchange.id}")
-            self._log.info("\033[36m=================================================================")
+        cdef:
+            list venue_positions
+            set venue_currencies
+        for venue in self._venues.values():
+            account = venue.exec_client.get_account()
+            self._log.info(f"{color}=================================================================")
+            self._log.info(f"{color} SimulatedVenue {venue.id}")
+            self._log.info(f"{color}=================================================================")
             self._log.info(f"{repr(account)}")
-            self._log.info("\033[36m-----------------------------------------------------------------")
-            if exchange.is_frozen_account:
+            self._log.info(f"{color}-----------------------------------------------------------------")
+            unrealized_pnls: dict[Currency, Money] | None = None
+            if venue.is_frozen_account:
                 self._log.warning(f"ACCOUNT FROZEN")
             else:
                 if account is None:
                     continue
                 self._log.info(f"Balances starting:")
                 for b in account.starting_balances().values():
-                    self._log.info(b.to_str())
-                self._log.info("\033[36m-----------------------------------------------------------------")
+                    self._log.info(b.to_formatted_str())
+                self._log.info(f"{color}-----------------------------------------------------------------")
                 self._log.info(f"Balances ending:")
                 for b in account.balances_total().values():
-                    self._log.info(b.to_str())
-                self._log.info("\033[36m-----------------------------------------------------------------")
+                    self._log.info(b.to_formatted_str())
+                self._log.info(f"{color}-----------------------------------------------------------------")
                 self._log.info(f"Commissions:")
-                for b in account.commissions().values():
-                    self._log.info(b.to_str())
-                self._log.info("\033[36m-----------------------------------------------------------------")
-                self._log.info(f"Unrealized PnLs:")
-                unrealized_pnls = self.portfolio.unrealized_pnls(Venue(exchange.id.value)).values()
+                for c in account.commissions().values():
+                    self._log.info(Money(-c.as_double(), c.currency).to_formatted_str())  # Display commission as negative
+                self._log.info(f"{color}-----------------------------------------------------------------")
+                self._log.info(f"Unrealized PnLs (included in totals):")
+                unrealized_pnls = self.portfolio.unrealized_pnls(Venue(venue.id.value))
                 if not unrealized_pnls:
                     self._log.info("None")
                 else:
-                    for b in self.portfolio.unrealized_pnls(Venue(exchange.id.value)).values():
-                        self._log.info(b.to_str())
+                    for b in unrealized_pnls.values():
+                        self._log.info(b.to_formatted_str())
 
             # Log output diagnostics for all simulation modules
-            for module in exchange.modules:
+            for module in venue.modules:
                 module.log_diagnostics(self._log)
 
-            self._log.info("\033[36m=================================================================")
-            self._log.info("\033[36m PORTFOLIO PERFORMANCE")
-            self._log.info("\033[36m=================================================================")
+            self._log.info(f"{color}=================================================================")
+            self._log.info(f"{color} PORTFOLIO PERFORMANCE")
+            self._log.info(f"{color}=================================================================")
 
-            # Find all positions for exchange venue
-            positions = []
-            for position in self.cache.positions():
-                if position.instrument_id.venue == exchange.id:
-                    positions.append(position)
+            # Collect all positions and currencies for venue
+            venue_positions = []
+            venue_currencies = set()
+            for position in positions:
+                if position.instrument_id.venue == venue.id:
+                    venue_positions.append(position)
+                    venue_currencies.add(position.quote_currency)
+                    if position.base_currency is not None:
+                        venue_currencies.add(position.base_currency)
 
             # Calculate statistics
-            self.trader.analyzer.calculate_statistics(account, positions)
+            self._kernel.portfolio.analyzer.calculate_statistics(account, venue_positions)
 
             # Present PnL performance stats per asset
-            for currency in account.currencies():
+            for currency in sorted(list(venue_currencies), key=lambda x: x.code):
                 self._log.info(f" PnL Statistics ({str(currency)})")
-                self._log.info("\033[36m-----------------------------------------------------------------")
-                for stat in self.trader.analyzer.get_stats_pnls_formatted(currency):
+                self._log.info(f"{color}-----------------------------------------------------------------")
+                unrealized_pnl = unrealized_pnls.get(currency) if unrealized_pnls else None
+                for stat in self._kernel.portfolio.analyzer.get_stats_pnls_formatted(currency, unrealized_pnl):
                     self._log.info(stat)
-                self._log.info("\033[36m-----------------------------------------------------------------")
+                self._log.info(f"{color}-----------------------------------------------------------------")
 
             self._log.info(" Returns Statistics")
-            self._log.info("\033[36m-----------------------------------------------------------------")
-            for stat in self.trader.analyzer.get_stats_returns_formatted():
+            self._log.info(f"{color}-----------------------------------------------------------------")
+            for stat in self._kernel.portfolio.analyzer.get_stats_returns_formatted():
                 self._log.info(stat)
-            self._log.info("\033[36m-----------------------------------------------------------------")
+            self._log.info(f"{color}-----------------------------------------------------------------")
 
             self._log.info(" General Statistics")
-            self._log.info("\033[36m-----------------------------------------------------------------")
-            for stat in self.trader.analyzer.get_stats_general_formatted():
+            self._log.info(f"{color}-----------------------------------------------------------------")
+            for stat in self._kernel.portfolio.analyzer.get_stats_general_formatted():
                 self._log.info(stat)
-            self._log.info("\033[36m-----------------------------------------------------------------")
+            self._log.info(f"{color}-----------------------------------------------------------------")
 
     def _add_data_client_if_not_exists(self, ClientId client_id) -> None:
-        if client_id not in self._data_engine.registered_clients:
+        if client_id not in self._kernel.data_engine.registered_clients:
             client = BacktestDataClient(
                 client_id=client_id,
-                msgbus=self._msgbus,
-                cache=self._cache,
-                clock=self._test_clock,
-                logger=self._test_logger,
+                msgbus=self._kernel.msgbus,
+                cache=self._kernel.cache,
+                clock=self._kernel.clock,
             )
-            self._data_engine.register_client(client)
+            self._kernel.data_engine.register_client(client)
 
     def _add_market_data_client_if_not_exists(self, Venue venue) -> None:
-        # TODO(cs): Assumption that client_id = venue
         cdef ClientId client_id = ClientId(venue.value)
-        if client_id not in self._data_engine.registered_clients:
+        if client_id not in self._kernel.data_engine.registered_clients:
             client = BacktestMarketDataClient(
                 client_id=client_id,
-                msgbus=self._msgbus,
-                cache=self._cache,
-                clock=self._test_clock,
-                logger=self._test_logger,
+                msgbus=self._kernel.msgbus,
+                cache=self._kernel.cache,
+                clock=self._kernel.clock,
             )
-            self._data_engine.register_client(client)
+            self._kernel.data_engine.register_client(client)

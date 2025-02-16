@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -91,18 +91,18 @@ cdef class TickScheme:
         raise NotImplementedError()  # pragma: no cover
 
 
-cdef inline double _round_base(double value, double base) except *:
+cdef inline double _round_base(double value, double base):
     return int(value / base) * base
 
 
-cpdef double round_down(double value, double base) except *:
+cpdef double round_down(double value, double base):
     """
     Returns a value rounded down to a specific number of decimal places.
     """
     return _round_base(value=value, base=base)
 
 
-cpdef double round_up(double value, double base) except *:
+cpdef double round_up(double value, double base):
     """
     Returns a value rounded down to a specific number of decimal places.
     """
@@ -111,7 +111,7 @@ cpdef double round_up(double value, double base) except *:
 
 cdef dict TICK_SCHEMES = {}  # type: dict[str, TickScheme]
 
-cpdef void register_tick_scheme(TickScheme tick_scheme) except *:
+cpdef void register_tick_scheme(TickScheme tick_scheme):
     Condition.not_none(tick_scheme, "tick_scheme")
 
     global TICK_SCHEMES

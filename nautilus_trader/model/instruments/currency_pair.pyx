@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,20 +13,18 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import orjson
-
-from libc.stdint cimport int64_t
-
 from decimal import Decimal
 
+from libc.stdint cimport uint64_t
+
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.asset_class cimport AssetClass
-from nautilus_trader.model.c_enums.asset_type cimport AssetType
-from nautilus_trader.model.c_enums.currency_type cimport CurrencyType
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.rust.model cimport AssetClass
+from nautilus_trader.core.rust.model cimport CurrencyType
+from nautilus_trader.core.rust.model cimport InstrumentClass
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport Symbol
 from nautilus_trader.model.instruments.base cimport Instrument
+from nautilus_trader.model.objects cimport Currency
 from nautilus_trader.model.objects cimport Money
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
@@ -36,15 +34,15 @@ cdef class CurrencyPair(Instrument):
     """
     Represents a generic currency pair instrument in a spot/cash market.
 
-    Can represent both Fiat FX and Crypto currency pairs.
+    Can represent both Fiat FX and Cryptocurrency pairs.
 
     Parameters
     ----------
     instrument_id : InstrumentId
         The instrument ID for the instrument.
-    native_symbol : Symbol
-        The native/local symbol on the exchange for the instrument.
-    base_currency : Currency, optional
+    raw_symbol : Symbol
+        The raw/local/native symbol for the instrument, assigned by the venue.
+    base_currency : Currency
         The base currency.
     quote_currency : Currency
         The quote currency.
@@ -56,6 +54,10 @@ cdef class CurrencyPair(Instrument):
         The minimum price increment (tick size).
     size_increment : Quantity
         The minimum size increment.
+    ts_event : uint64_t
+        UNIX timestamp (nanoseconds) when the data event occurred.
+    ts_init : uint64_t
+        UNIX timestamp (nanoseconds) when the data object was initialized.
     lot_size : Quantity, optional
         The rounded lot unit size.
     max_quantity : Quantity, optional
@@ -67,21 +69,17 @@ cdef class CurrencyPair(Instrument):
     min_notional : Money, optional
         The minimum allowable order notional value.
     max_price : Price, optional
-        The maximum allowable printed price.
+        The maximum allowable quoted price.
     min_price : Price, optional
-        The minimum allowable printed price.
-    margin_init : Decimal
+        The minimum allowable quoted price.
+    margin_init : Decimal, optional
         The initial (order) margin requirement in percentage of order value.
-    margin_maint : Decimal
+    margin_maint : Decimal, optional
         The maintenance (position) margin in percentage of position value.
-    maker_fee : Decimal
+    maker_fee : Decimal, optional
         The fee rate for liquidity makers as a percentage of order value.
-    taker_fee : Decimal
+    taker_fee : Decimal, optional
         The fee rate for liquidity takers as a percentage of order value.
-    ts_event: int64
-        The UNIX timestamp (nanoseconds) when the data event occurred.
-    ts_init: int64
-        The UNIX timestamp (nanoseconds) when the data object was initialized.
     tick_scheme_name : str, optional
         The name of the tick scheme.
     info : dict[str, object], optional
@@ -117,47 +115,52 @@ cdef class CurrencyPair(Instrument):
         If `max_price` is not positive (> 0).
     ValueError
         If `min_price` is negative (< 0).
+    ValueError
+        If `margin_init` is negative (< 0).
+    ValueError
+        If `margin_maint` is negative (< 0).
+
     """
 
     def __init__(
         self,
         InstrumentId instrument_id not None,
-        Symbol native_symbol not None,
+        Symbol raw_symbol not None,
         Currency base_currency not None,
         Currency quote_currency not None,
         int price_precision,
         int size_precision,
         Price price_increment not None,
         Quantity size_increment not None,
-        Quantity lot_size,      # Can be None
-        Quantity max_quantity,  # Can be None
-        Quantity min_quantity,  # Can be None
-        Money max_notional,     # Can be None
-        Money min_notional,     # Can be None
-        Price max_price,        # Can be None
-        Price min_price,        # Can be None
-        margin_init not None: Decimal,
-        margin_maint not None: Decimal,
-        maker_fee not None: Decimal,
-        taker_fee not None: Decimal,
-        int64_t ts_event,
-        int64_t ts_init,
-        str tick_scheme_name=None,
-        dict info=None,
-    ):
+        uint64_t ts_event,
+        uint64_t ts_init,
+        Quantity lot_size: Quantity | None = None,
+        Quantity max_quantity: Quantity | None = None,
+        Quantity min_quantity: Quantity | None = None,
+        Money max_notional: Money | None = None,
+        Money min_notional: Money | None = None,
+        Price max_price: Price | None = None,
+        Price min_price: Price | None = None,
+        margin_init: Decimal | None = None,
+        margin_maint: Decimal | None = None,
+        maker_fee: Decimal | None = None,
+        taker_fee: Decimal | None = None,
+        str tick_scheme_name = None,
+        dict info = None,
+    ) -> None:
         # Determine asset class
         if (
             base_currency.currency_type == CurrencyType.CRYPTO
             or quote_currency.currency_type == CurrencyType.CRYPTO
         ):
-            asset_class = AssetClass.CRYPTO
+            asset_class = AssetClass.CRYPTOCURRENCY
         else:
             asset_class = AssetClass.FX
         super().__init__(
             instrument_id=instrument_id,
-            native_symbol=native_symbol,
+            raw_symbol=raw_symbol,
             asset_class=asset_class,
-            asset_type=AssetType.SPOT,
+            instrument_class=InstrumentClass.SPOT,
             quote_currency=quote_currency,
             is_inverse=False,
             price_precision=price_precision,
@@ -172,10 +175,11 @@ cdef class CurrencyPair(Instrument):
             min_notional=min_notional,
             max_price=max_price,
             min_price=min_price,
-            margin_init=margin_init,
-            margin_maint=margin_maint,
-            maker_fee=maker_fee,
-            taker_fee=taker_fee,
+            margin_init=margin_init or Decimal(0),
+            margin_maint=margin_maint or Decimal(0),
+            maker_fee=maker_fee or Decimal(0),
+            taker_fee=taker_fee or Decimal(0),
+            tick_scheme_name=tick_scheme_name,
             ts_event=ts_event,
             ts_init=ts_init,
             info=info,
@@ -204,10 +208,9 @@ cdef class CurrencyPair(Instrument):
         cdef str min_n = values["min_notional"]
         cdef str max_p = values["max_price"]
         cdef str min_p = values["min_price"]
-        cdef bytes info = values["info"]
         return CurrencyPair(
             instrument_id=InstrumentId.from_str_c(values["id"]),
-            native_symbol=Symbol(values["native_symbol"]),
+            raw_symbol=Symbol(values["raw_symbol"]),
             base_currency=Currency.from_str_c(values["base_currency"]),
             quote_currency=Currency.from_str_c(values["quote_currency"]),
             price_precision=values["price_precision"],
@@ -227,7 +230,7 @@ cdef class CurrencyPair(Instrument):
             taker_fee=Decimal(values["taker_fee"]),
             ts_event=values["ts_event"],
             ts_init=values["ts_init"],
-            info=orjson.loads(info) if info is not None else None,
+            info=values["info"],
         )
 
     @staticmethod
@@ -235,8 +238,8 @@ cdef class CurrencyPair(Instrument):
         Condition.not_none(obj, "obj")
         return {
             "type": "CurrencyPair",
-            "id": obj.id.value,
-            "native_symbol": obj.native_symbol.value,
+            "id": obj.id.to_str(),
+            "raw_symbol": obj.raw_symbol.to_str(),
             "base_currency": obj.base_currency.code,
             "quote_currency": obj.quote_currency.code,
             "price_precision": obj.price_precision,
@@ -246,8 +249,8 @@ cdef class CurrencyPair(Instrument):
             "lot_size": str(obj.lot_size) if obj.lot_size is not None else None,
             "max_quantity": str(obj.max_quantity) if obj.max_quantity is not None else None,
             "min_quantity": str(obj.min_quantity) if obj.min_quantity is not None else None,
-            "max_notional": obj.max_notional.to_str() if obj.max_notional is not None else None,
-            "min_notional": obj.min_notional.to_str() if obj.min_notional is not None else None,
+            "max_notional": str(obj.max_notional) if obj.max_notional is not None else None,
+            "min_notional": str(obj.min_notional) if obj.min_notional is not None else None,
             "max_price": str(obj.max_price) if obj.max_price is not None else None,
             "min_price": str(obj.min_price) if obj.min_price is not None else None,
             "margin_init": str(obj.margin_init),
@@ -256,7 +259,7 @@ cdef class CurrencyPair(Instrument):
             "taker_fee": str(obj.taker_fee),
             "ts_event": obj.ts_event,
             "ts_init": obj.ts_init,
-            "info": orjson.dumps(obj.info) if obj.info is not None else None,
+            "info": obj.info,
         }
 
     @staticmethod
@@ -277,7 +280,7 @@ cdef class CurrencyPair(Instrument):
         return CurrencyPair.from_dict_c(values)
 
     @staticmethod
-    def to_dict(CurrencyPair obj):
+    def to_dict(CurrencyPair obj) -> dict[str, object]:
         """
         Return a dictionary representation of this object.
 
@@ -287,3 +290,34 @@ cdef class CurrencyPair(Instrument):
 
         """
         return CurrencyPair.to_dict_c(obj)
+
+    @staticmethod
+    cdef CurrencyPair from_pyo3_c(pyo3_instrument):
+        return CurrencyPair(
+            instrument_id=InstrumentId.from_str_c(pyo3_instrument.id.value),
+            raw_symbol=Symbol(pyo3_instrument.raw_symbol.value),
+            base_currency=Currency.from_str_c(pyo3_instrument.base_currency.code),
+            quote_currency=Currency.from_str_c(pyo3_instrument.quote_currency.code),
+            price_precision=pyo3_instrument.price_precision,
+            size_precision=pyo3_instrument.size_precision,
+            price_increment=Price.from_raw_c(pyo3_instrument.price_increment.raw, pyo3_instrument.price_precision),
+            size_increment=Quantity.from_raw_c(pyo3_instrument.size_increment.raw, pyo3_instrument.size_precision),
+            lot_size=Quantity.from_raw_c(pyo3_instrument.lot_size.raw,pyo3_instrument.lot_size.precision) if pyo3_instrument.lot_size is not None else None,
+            max_quantity=Quantity.from_raw_c(pyo3_instrument.max_quantity.raw, pyo3_instrument.max_quantity.precision) if pyo3_instrument.max_quantity is not None else None,
+            min_quantity=Quantity.from_raw_c(pyo3_instrument.min_quantity.raw, pyo3_instrument.min_quantity.precision) if pyo3_instrument.min_quantity is not None else None,
+            max_notional=Money.from_str_c(str(pyo3_instrument.max_notional)) if pyo3_instrument.max_notional is not None else None,
+            min_notional=Money.from_str_c(str(pyo3_instrument.min_notional)) if pyo3_instrument.min_notional is not None else None,
+            max_price=Price.from_raw_c(pyo3_instrument.max_price.raw,pyo3_instrument.max_price.precision) if pyo3_instrument.max_price is not None else None,
+            min_price=Price.from_raw_c(pyo3_instrument.min_price.raw,pyo3_instrument.min_price.precision) if pyo3_instrument.min_price is not None else None,
+            margin_init=Decimal(pyo3_instrument.margin_init),
+            margin_maint=Decimal(pyo3_instrument.margin_maint),
+            maker_fee=Decimal(pyo3_instrument.maker_fee),
+            taker_fee=Decimal(pyo3_instrument.taker_fee),
+            ts_event=pyo3_instrument.ts_event,
+            ts_init=pyo3_instrument.ts_init,
+            info=pyo3_instrument.info,
+        )
+
+    @staticmethod
+    def from_pyo3(pyo3_instrument):
+        return CurrencyPair.from_pyo3_c(pyo3_instrument)

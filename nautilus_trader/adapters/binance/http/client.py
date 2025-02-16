@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,186 +13,203 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-import asyncio
-import hashlib
-import hmac
-from typing import Any, Dict, Optional
+import urllib.parse
+from typing import Any
 
-import orjson
-from aiohttp import ClientResponse
-from aiohttp import ClientResponseError
+import msgspec
 
 import nautilus_trader
+from nautilus_trader.adapters.binance.common.enums import BinanceKeyType
 from nautilus_trader.adapters.binance.http.error import BinanceClientError
 from nautilus_trader.adapters.binance.http.error import BinanceServerError
-from nautilus_trader.common.clock import LiveClock
-from nautilus_trader.common.logging import Logger
-from nautilus_trader.network.http import HttpClient
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.common.component import Logger
+from nautilus_trader.common.enums import LogColor
+from nautilus_trader.core.nautilus_pyo3 import HttpClient
+from nautilus_trader.core.nautilus_pyo3 import HttpMethod
+from nautilus_trader.core.nautilus_pyo3 import HttpResponse
+from nautilus_trader.core.nautilus_pyo3 import Quota
+from nautilus_trader.core.nautilus_pyo3 import ed25519_signature
+from nautilus_trader.core.nautilus_pyo3 import hmac_signature
+from nautilus_trader.core.nautilus_pyo3 import rsa_signature
 
 
-NAUTILUS_VERSION = nautilus_trader.__version__
-
-
-class BinanceHttpClient(HttpClient):
+class BinanceHttpClient:
     """
-    Provides a `Binance` asynchronous HTTP client.
-    """
+    Provides a Binance asynchronous HTTP client.
 
-    BASE_URL = "https://api.binance.com"  # Default SPOT
+    Parameters
+    ----------
+    clock : LiveClock
+        The clock for the client.
+    api_key : str
+        The Binance API key for requests.
+    api_secret : str
+        The Binance API secret for signed requests.
+    key_type : BinanceKeyType, default 'HMAC'
+        The private key cryptographic algorithm type.
+    rsa_private_key : str, optional
+        The RSA private key for RSA signing.
+    ed25519_private_key : str, optional
+        The Ed25519 private key for Ed25519 signing.
+    base_url : str, optional
+        The base endpoint URL for the client.
+    ratelimiter_quotas : list[tuple[str, Quota]], optional
+        The keyed rate limiter quotas for the client.
+    ratelimiter_quota : Quota, optional
+        The default rate limiter quota for the client.
+
+    """
 
     def __init__(
         self,
-        loop: asyncio.AbstractEventLoop,
         clock: LiveClock,
-        logger: Logger,
-        key: Optional[str] = None,
-        secret: Optional[str] = None,
-        base_url: Optional[str] = None,
-        timeout: Optional[int] = None,
-        show_limit_usage: bool = False,
-    ):
-        super().__init__(
-            loop=loop,
-            logger=logger,
+        api_key: str,
+        api_secret: str,
+        base_url: str,
+        key_type: BinanceKeyType = BinanceKeyType.HMAC,
+        rsa_private_key: str | None = None,
+        ed25519_private_key: str | None = None,
+        ratelimiter_quotas: list[tuple[str, Quota]] | None = None,
+        ratelimiter_default_quota: Quota | None = None,
+    ) -> None:
+        self._clock: LiveClock = clock
+        self._log: Logger = Logger(type(self).__name__)
+        self._key: str = api_key
+
+        self._base_url: str = base_url
+        self._secret: str = api_secret
+        self._key_type: BinanceKeyType = key_type
+        self._rsa_private_key: str | None = rsa_private_key
+        self._ed25519_private_key: bytes | None = (
+            ed25519_private_key.encode() if ed25519_private_key else None
         )
-        self._clock = clock
-        self._key = key
-        self._secret = secret
-        self._base_url = base_url or self.BASE_URL
-        self._show_limit_usage = show_limit_usage
-        self._proxies = None
-        self._headers: Dict[str, Any] = {
-            "Content-Type": "application/json;charset=utf-8",
-            "User-Agent": "nautilus-trader/" + NAUTILUS_VERSION,
-            "X-MBX-APIKEY": key,
+
+        self._headers: dict[str, Any] = {
+            "Content-Type": "application/json",
+            "User-Agent": nautilus_trader.USER_AGENT,
+            "X-MBX-APIKEY": api_key,
         }
-
-        if timeout is not None:
-            self._headers["timeout"] = timeout
-
-        # TODO(cs): Implement limit usage
+        self._client = HttpClient(
+            keyed_quotas=ratelimiter_quotas or [],
+            default_quota=ratelimiter_default_quota,
+        )
 
     @property
     def base_url(self) -> str:
+        """
+        Return the base URL being used by the client.
+
+        Returns
+        -------
+        str
+
+        """
         return self._base_url
 
     @property
     def api_key(self) -> str:
+        """
+        Return the Binance API key being used by the client.
+
+        Returns
+        -------
+        str
+
+        """
         return self._key
 
     @property
-    def api_secret(self) -> str:
-        return self._secret
-
-    @property
     def headers(self):
+        """
+        Return the headers being used by the client.
+
+        Returns
+        -------
+        str
+
+        """
         return self._headers
 
-    async def query(self, url_path, payload: Dict[str, str] = None) -> Any:
-        return await self.send_request("GET", url_path, payload=payload)
+    def _prepare_params(self, params: dict[str, Any]) -> str:
+        # Encode a dict into a URL query string
+        return urllib.parse.urlencode(params)
 
-    async def limit_request(
-        self,
-        http_method: str,
-        url_path: str,
-        payload: Dict[str, Any] = None,
-    ) -> Any:
-        """
-        Limit request is for those endpoints requiring an API key in the header.
-        """
-        return await self.send_request(http_method, url_path, payload=payload)
+    def _get_sign(self, data: str) -> str:
+        match self._key_type:
+            case BinanceKeyType.HMAC:
+                return hmac_signature(self._secret, data)
+            case BinanceKeyType.RSA:
+                if not self._rsa_private_key:
+                    raise ValueError("`rsa_private_key` was `None`")
+                return rsa_signature(self._rsa_private_key, data)
+            case BinanceKeyType.ED25519:
+                if not self._ed25519_private_key:
+                    raise ValueError("`ed25519_private_key` was `None`")
+                return ed25519_signature(self._ed25519_private_key, data)
+            case _:
+                # Theoretically unreachable but retained to keep the match exhaustive
+                raise ValueError(f"Unsupported key type, was '{self._key_type.value}'")
 
     async def sign_request(
         self,
-        http_method: str,
+        http_method: HttpMethod,
         url_path: str,
-        payload: Dict[str, str] = None,
+        payload: dict[str, str] | None = None,
+        ratelimiter_keys: list[str] | None = None,
     ) -> Any:
         if payload is None:
             payload = {}
-        payload["timestamp"] = str(self._clock.timestamp_ms())
         query_string = self._prepare_params(payload)
         signature = self._get_sign(query_string)
         payload["signature"] = signature
-        return await self.send_request(http_method, url_path, payload)
-
-    async def limited_encoded_sign_request(
-        self,
-        http_method: str,
-        url_path: str,
-        payload: Dict[str, str] = None,
-    ) -> Any:
-        """
-        Limit encoded sign request.
-
-        This is used for some endpoints has special symbol in the url.
-        In some endpoints these symbols should not encoded.
-        - @
-        - [
-        - ]
-        so we have to append those parameters in the url.
-        """
-        if payload is None:
-            payload = {}
-        payload["timestamp"] = str(self._clock.timestamp_ms())
-        query_string = self._prepare_params(payload)
-        signature = self._get_sign(query_string)
-        url_path = url_path + "?" + query_string + "&signature=" + signature
-        return await self.send_request(http_method, url_path)
+        return await self.send_request(
+            http_method,
+            url_path,
+            payload=payload,
+            ratelimiter_keys=ratelimiter_keys,
+        )
 
     async def send_request(
         self,
-        http_method: str,
+        http_method: HttpMethod,
         url_path: str,
-        payload: Dict[str, str] = None,
-    ) -> Any:
-        # TODO(cs): Uncomment for development
-        # print(f"{http_method} {url_path} {payload}")
-        if payload is None:
-            payload = {}
-        try:
-            resp: ClientResponse = await self.request(
-                method=http_method,
-                url=self._base_url + url_path,
-                headers=self._headers,
-                params=self._prepare_params(payload),
-            )
-        except ClientResponseError as ex:
-            await self._handle_exception(ex)
-            return
+        payload: dict[str, str] | None = None,
+        ratelimiter_keys: list[str] | None = None,
+    ) -> bytes:
+        if payload:
+            url_path += "?" + urllib.parse.urlencode(payload)
+            payload = None  # Don't send payload in the body
 
-        if self._show_limit_usage:
-            limit_usage = {}
-            for key in resp.headers.keys():
-                key = key.lower()
-                if (
-                    key.startswith("x-mbx-used-weight")
-                    or key.startswith("x-mbx-order-count")
-                    or key.startswith("x-sapi-used")
-                ):
-                    limit_usage[key] = resp.headers[key]
+        self._log.debug(f"{url_path} {payload}", LogColor.MAGENTA)
 
-        try:
-            return orjson.loads(resp.data)
-        except orjson.JSONDecodeError:
-            self._log.error(f"Could not decode data to JSON: {resp.data}.")
+        response: HttpResponse = await self._client.request(
+            http_method,
+            url=self._base_url + url_path,
+            headers=self._headers,
+            body=msgspec.json.encode(payload) if payload else None,
+            keys=ratelimiter_keys,
+        )
 
-    def _get_sign(self, data) -> str:
-        m = hmac.new(self._secret.encode(), data.encode(), hashlib.sha256)
-        return m.hexdigest()
+        response_body = response.body
 
-    async def _handle_exception(self, error: ClientResponseError) -> None:
-        if error.status < 400:
-            return
-        elif 400 <= error.status < 500:
-            raise BinanceClientError(
-                status=error.status,
-                message=error.message,
-                headers=error.headers,
-            )
-        else:
-            raise BinanceServerError(
-                status=error.status,
-                message=error.message,
-                headers=error.headers,
-            )
+        if response.status >= 400:
+            try:
+                message = msgspec.json.decode(response_body) if response_body else None
+            except msgspec.DecodeError:
+                message = response_body.decode()
+
+            if response.status >= 500:
+                raise BinanceServerError(
+                    status=response.status,
+                    message=message,
+                    headers=response.headers,
+                )
+            else:
+                raise BinanceClientError(
+                    status=response.status,
+                    message=message,
+                    headers=response.headers,
+                )
+
+        return response.body

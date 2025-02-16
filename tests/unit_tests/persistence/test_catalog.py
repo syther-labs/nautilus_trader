@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -15,254 +15,450 @@
 
 import datetime
 import sys
+from decimal import Decimal
 
-import fsspec
+import pandas as pd
 import pyarrow.dataset as ds
 import pytest
 
-from nautilus_trader.adapters.betfair.providers import BetfairInstrumentProvider
-from nautilus_trader.backtest.data.providers import TestInstrumentProvider
-from nautilus_trader.backtest.data.wranglers import BarDataWrangler
-from nautilus_trader.model.data.base import GenericData
-from nautilus_trader.model.data.tick import QuoteTick
-from nautilus_trader.model.data.tick import TradeTick
-from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.rust.model import AggressorSide
+from nautilus_trader.core.rust.model import BookAction
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.data import CustomData
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.instruments.betting import BettingInstrument
+from nautilus_trader.model.instruments import BettingInstrument
+from nautilus_trader.model.instruments import Equity
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.persistence.catalog import DataCatalog
-from nautilus_trader.persistence.external.core import dicts_to_dataframes
-from nautilus_trader.persistence.external.core import process_files
-from nautilus_trader.persistence.external.core import split_and_serialize
-from nautilus_trader.persistence.external.core import write_objects
-from nautilus_trader.persistence.external.core import write_tables
-from nautilus_trader.persistence.external.readers import CSVReader
-from tests.integration_tests.adapters.betfair.test_kit import BetfairTestStubs
-from tests.test_kit import PACKAGE_ROOT
-from tests.test_kit.mocks.data import NewsEventData
-from tests.test_kit.mocks.data import data_catalog_setup
-from tests.test_kit.stubs.data import TestDataStubs
-from tests.test_kit.stubs.identifiers import TestIdStubs
-from tests.test_kit.stubs.persistence import TestPersistenceStubs
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.persistence.wranglers_v2 import QuoteTickDataWranglerV2
+from nautilus_trader.persistence.wranglers_v2 import TradeTickDataWranglerV2
+from nautilus_trader.test_kit.mocks.data import NewsEventData
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
+from nautilus_trader.test_kit.stubs.data import TestDataStubs
+from nautilus_trader.test_kit.stubs.persistence import TestPersistenceStubs
 
 
-TEST_DATA_DIR = PACKAGE_ROOT + "/data"
+def test_list_data_types(catalog_betfair: ParquetDataCatalog) -> None:
+    data_types = catalog_betfair.list_data_types()
+    expected = [
+        "betting_instrument",
+        "custom_betfair_ticker",
+        "instrument_status",
+        "order_book_delta",
+        "trade_tick",
+    ]
+    assert data_types == expected
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="test path broken on windows")
-class TestPersistenceCatalog:
-    def setup(self):
-        data_catalog_setup()
-        self.catalog = DataCatalog.from_env()
-        self.fs: fsspec.AbstractFileSystem = self.catalog.fs
-        self._loaded_data_into_catalog()
+def test_catalog_query_filtered(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    trades = catalog_betfair.trade_ticks()
+    assert len(trades) == 283
 
-    def _loaded_data_into_catalog(self):
-        self.instrument_provider = BetfairInstrumentProvider.from_instruments([])
-        process_files(
-            glob_path=PACKAGE_ROOT + "/data/1.166564490.bz2",
-            reader=BetfairTestStubs.betfair_reader(instrument_provider=self.instrument_provider),
-            instrument_provider=self.instrument_provider,
-            catalog=self.catalog,
-        )
+    trades = catalog_betfair.trade_ticks(start="2019-12-20 20:56:18")
+    assert len(trades) == 121
 
-    def test_list_data_types(self):
-        data_types = self.catalog.list_data_types()
-        expected = [
-            "betfair_ticker",
-            "betting_instrument",
-            "instrument_status_update",
-            "order_book_data",
-            "trade_tick",
-        ]
-        assert data_types == expected
+    trades = catalog_betfair.trade_ticks(start=1576875378384999936)
+    assert len(trades) == 121
 
-    def test_data_catalog_instruments_df(self):
-        instruments = self.catalog.instruments()
-        assert len(instruments) == 2
+    trades = catalog_betfair.trade_ticks(start=datetime.datetime(2019, 12, 20, 20, 56, 18))
+    assert len(trades) == 121
 
-    def test_writing_instruments_doesnt_overwrite(self):
-        instruments = self.catalog.instruments(as_nautilus=True)
-        write_objects(catalog=self.catalog, chunk=[instruments[0]])
-        write_objects(catalog=self.catalog, chunk=[instruments[1]])
-        instruments = self.catalog.instruments(as_nautilus=True)
-        assert len(instruments) == 2
+    deltas = catalog_betfair.order_book_deltas()
+    assert len(deltas) == 2384
 
-    def test_data_catalog_instruments_filtered_df(self):
-        instrument_id = (
-            "Basketball,,29628709,20191221-001000,ODDS,MATCH_ODDS,1.166564490,237491,0.0.BETFAIR"
-        )
-        instruments = self.catalog.instruments(instrument_ids=[instrument_id])
-        assert len(instruments) == 1
-        assert instruments["id"].iloc[0] == instrument_id
+    deltas = catalog_betfair.order_book_deltas(batched=True)
+    assert len(deltas) == 2007
 
-    def test_data_catalog_instruments_as_nautilus(self):
-        instruments = self.catalog.instruments(as_nautilus=True)
-        assert all(isinstance(ins, BettingInstrument) for ins in instruments)
 
-    def test_data_catalog_currency_with_null_max_price_loads(self):
-        # Arrange
-        catalog = DataCatalog.from_env()
-        instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD", venue=Venue("SIM"))
-        write_objects(catalog=catalog, chunk=[instrument])
+def test_catalog_query_custom_filtered(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    filtered_deltas = catalog_betfair.order_book_deltas(
+        where=f"action = '{BookAction.DELETE.value}'",
+    )
+    assert len(filtered_deltas) == 351
 
-        # Act
-        instrument = catalog.instruments(instrument_ids=["AUD/USD.SIM"], as_nautilus=True)[0]
 
-        # Assert
-        assert instrument.max_price is None
+def test_catalog_instruments_df(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    instruments = catalog_betfair.instruments()
+    assert len(instruments) == 2
 
-    def test_data_catalog_instrument_ids_correctly_unmapped(self):
-        # Arrange
-        catalog = DataCatalog.from_env()
-        instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD", venue=Venue("SIM"))
-        trade_tick = TradeTick(
+
+def test_catalog_instruments_filtered_df(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    instrument_id = catalog_betfair.instruments()[0].id.value
+    instruments = catalog_betfair.instruments(instrument_ids=[instrument_id])
+    assert len(instruments) == 1
+    assert all(isinstance(ins, BettingInstrument) for ins in instruments)
+    assert instruments[0].id.value == instrument_id
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Failing on windows")
+def test_catalog_currency_with_null_max_price_loads(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD", venue=Venue("SIM"))
+    catalog_betfair.write_data([instrument])
+
+    # Act
+    instrument = catalog_betfair.instruments(instrument_ids=["AUD/USD.SIM"])[0]
+
+    # Assert
+    assert instrument.max_price is None
+
+
+def test_catalog_instrument_ids_correctly_unmapped(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD", venue=Venue("SIM"))
+    trade_tick = TradeTick(
+        instrument_id=instrument.id,
+        price=Price.from_str("2.0"),
+        size=Quantity.from_int(10),
+        aggressor_side=AggressorSide.NO_AGGRESSOR,
+        trade_id=TradeId("1"),
+        ts_event=0,
+        ts_init=0,
+    )
+    catalog.write_data([instrument, trade_tick])
+
+    # Act
+    catalog.instruments()
+    instrument = catalog.instruments(instrument_ids=["AUD/USD.SIM"])[0]
+    trade_tick = catalog.trade_ticks(instrument_ids=["AUD/USD.SIM"])[0]
+
+    # Assert
+    assert instrument.id.value == "AUD/USD.SIM"
+    assert trade_tick.instrument_id.value == "AUD/USD.SIM"
+
+
+@pytest.mark.skip("development_only")
+def test_catalog_with_databento_instruments(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = TEST_DATA_DIR / "databento" / "temp" / "glbx-mdp3-20241020.definition.dbn.zst"
+    instruments = loader.from_dbn_file(path, as_legacy_cython=True)
+    catalog.write_data(instruments)
+
+    # Act
+    catalog.instruments()
+
+    # Assert
+    assert len(instruments) == 601_633
+
+
+@pytest.mark.skip(reason="Not yet partitioning")
+def test_partitioning_min_rows_per_group(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    instrument = Equity(
+        instrument_id=InstrumentId(symbol=Symbol("AAPL"), venue=Venue("NASDAQ")),
+        raw_symbol=Symbol("AAPL"),
+        currency=USD,
+        price_precision=2,
+        price_increment=Price.from_str("0.01"),
+        multiplier=Quantity.from_int(1),
+        lot_size=Quantity.from_int(1),
+        isin="US0378331005",
+        ts_event=0,
+        ts_init=0,
+        margin_init=Decimal("0.01"),
+        margin_maint=Decimal("0.005"),
+        maker_fee=Decimal("0.005"),
+        taker_fee=Decimal("0.01"),
+    )
+    quote_ticks = []
+
+    # Num quotes needs to be less than 5000 (default value for max_rows_per_group)
+    expected_num_quotes = 100
+
+    for _ in range(expected_num_quotes):
+        quote_tick = QuoteTick(
             instrument_id=instrument.id,
-            price=Price.from_str("2.0"),
-            size=Quantity.from_int(10),
-            aggressor_side=AggressorSide.UNKNOWN,
-            trade_id=TradeId("1"),
+            bid_price=Price.from_str("2.1"),
+            ask_price=Price.from_str("2.0"),
+            bid_size=Quantity.from_int(10),
+            ask_size=Quantity.from_int(10),
             ts_event=0,
             ts_init=0,
         )
-        write_objects(catalog=catalog, chunk=[instrument, trade_tick])
+        quote_ticks.append(quote_tick)
 
-        # Act
-        instrument = catalog.instruments(instrument_ids=["AUD/USD.SIM"], as_nautilus=True)[0]
-        trade_tick = catalog.trade_ticks(instrument_ids=["AUD/USD.SIM"], as_nautilus=True)[0]
+    # Act
+    catalog_betfair.write_data(data=quote_ticks, partitioning=["ts_event"])
 
-        # Assert
-        assert instrument.id.value == "AUD/USD.SIM"
-        assert trade_tick.instrument_id.value == "AUD/USD.SIM"
+    result = len(catalog_betfair.quote_ticks())
 
-    def test_data_catalog_trade_ticks_as_nautilus(self):
-        trade_ticks = self.catalog.trade_ticks(as_nautilus=True)
-        assert all(isinstance(tick, TradeTick) for tick in trade_ticks)
-        assert len(trade_ticks) == 312
+    # Assert
+    assert result == expected_num_quotes
 
-    def test_partition_key_correctly_remapped(self):
-        # Arrange
-        instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD")
-        tick = QuoteTick(
-            instrument_id=instrument.id,
-            bid=Price(10, 1),
-            ask=Price(11, 1),
-            bid_size=Quantity(10, 1),
-            ask_size=Quantity(10, 1),
-            ts_init=0,
-            ts_event=0,
-        )
-        tables = dicts_to_dataframes(split_and_serialize([tick]))
-        write_tables(catalog=self.catalog, tables=tables)
 
-        # Act
-        df = self.catalog.quote_ticks()
+def test_catalog_filter(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    deltas = catalog_betfair.order_book_deltas()
 
-        # Assert
-        assert len(df) == 1
-        assert self.fs.isdir("/root/data/quote_tick.parquet/instrument_id=AUD-USD.SIM/")
-        # Ensure we "unmap" the keys that we write the partition filenames as;
-        # this instrument_id should be AUD/USD not AUD-USD
-        assert df.iloc[0]["instrument_id"] == instrument.id.value
+    # Act
+    filtered_deltas = catalog_betfair.order_book_deltas(
+        where=f"Action = {BookAction.DELETE.value}",
+    )
 
-    def test_data_catalog_filter(self):
-        # Arrange, Act
-        deltas = self.catalog.order_book_deltas()
-        filtered_deltas = self.catalog.order_book_deltas(filter_expr=ds.field("action") == "DELETE")
+    # Assert
+    assert len(deltas) == 2384
+    assert len(filtered_deltas) == 351
 
-        # Assert
-        assert len(deltas) == 2384
-        assert len(filtered_deltas) == 351
 
-    def test_data_catalog_query_filtered(self):
-        ticks = self.catalog.trade_ticks()
-        assert len(ticks) == 312
+def test_catalog_orderbook_deltas_precision(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange, Act
+    deltas = catalog_betfair.order_book_deltas()
 
-        ticks = self.catalog.trade_ticks(start="2019-12-20 20:56:18")
-        assert len(ticks) == 123
+    # Assert
+    for delta in deltas:
+        assert delta.order.price.precision == BETFAIR_PRICE_PRECISION
 
-        ticks = self.catalog.trade_ticks(start=1576875378384999936)
-        assert len(ticks) == 123
+    assert len(deltas) == 2384
 
-        ticks = self.catalog.trade_ticks(start=datetime.datetime(2019, 12, 20, 20, 56, 18))
-        assert len(ticks) == 123
 
-        deltas = self.catalog.order_book_deltas()
-        assert len(deltas) == 2384
+def test_catalog_custom_data(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    TestPersistenceStubs.setup_news_event_persistence()
+    data = TestPersistenceStubs.news_events()
+    catalog.write_data(data)
 
-        filtered_deltas = self.catalog.order_book_deltas(filter_expr=ds.field("action") == "DELETE")
-        assert len(filtered_deltas) == 351
+    # Act
+    df = catalog.custom_data(cls=NewsEventData, filter_expr=ds.field("currency") == "USD")
+    data = catalog.custom_data(
+        cls=NewsEventData,
+        filter_expr=ds.field("currency") == "CHF",
+    )
 
-    def test_data_catalog_generic_data(self):
-        TestPersistenceStubs.setup_news_event_persistence()
-        process_files(
-            glob_path=f"{TEST_DATA_DIR}/news_events.csv",
-            reader=CSVReader(block_parser=TestPersistenceStubs.news_event_parser),
-            catalog=self.catalog,
-        )
-        df = self.catalog.generic_data(cls=NewsEventData, filter_expr=ds.field("currency") == "USD")
-        assert len(df) == 22925
-        data = self.catalog.generic_data(
-            cls=NewsEventData, filter_expr=ds.field("currency") == "CHF", as_nautilus=True
-        )
-        assert len(data) == 2745 and isinstance(data[0], GenericData)
+    # Assert
+    assert df is not None
+    assert data is not None
+    assert len(df) == 22941
+    assert len(data) == 2745
+    assert isinstance(data[0], CustomData)
 
-    def test_data_catalog_bars(self):
-        # Arrange
-        bar_type = TestDataStubs.bartype_adabtc_binance_1min_last()
-        instrument = TestInstrumentProvider.adabtc_binance()
-        wrangler = BarDataWrangler(bar_type, instrument)
 
-        def parser(data):
-            data["timestamp"] = data["timestamp"].astype("datetime64[ms]")
-            bars = wrangler.process(data.set_index("timestamp"))
-            return bars
+def test_catalog_bars_querying_by_bar_type(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    bar_type = TestDataStubs.bartype_adabtc_binance_1min_last()
+    instrument = TestInstrumentProvider.adabtc_binance()
+    stub_bars = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type,
+        instrument,
+    )
 
-        binance_spot_header = [
-            "timestamp",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "ts_close",
-            "quote_volume",
-            "n_trades",
-            "taker_buy_base_volume",
-            "taker_buy_quote_volume",
-            "ignore",
-        ]
-        reader = CSVReader(block_parser=parser, header=binance_spot_header)
+    # Act
+    catalog.write_data(stub_bars)
 
-        # Act
-        _ = process_files(
-            glob_path=f"{TEST_DATA_DIR}/ADABTC-1m-2021-11-*.csv",
-            reader=reader,
-            catalog=self.catalog,
-        )
+    # Assert
+    bars = catalog.bars(bar_types=[str(bar_type)])
+    all_bars = catalog.bars()
+    assert len(all_bars) == 10
+    assert len(bars) == len(stub_bars) == 10
 
-        # Assert
-        bars = self.catalog.bars()
-        assert len(bars) == 21
 
-    def test_catalog_bar_query_instrument_id(self):
-        # Arrange
-        bar = TestDataStubs.bar_5decimal()
-        write_objects(catalog=self.catalog, chunk=[bar])
+def test_catalog_append_data(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    bar_type = TestDataStubs.bartype_adabtc_binance_1min_last()
+    instrument = TestInstrumentProvider.adabtc_binance()
+    stub_bars = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type,
+        instrument,
+    )
+    catalog.write_data(stub_bars)
 
-        # Act
-        objs = self.catalog.bars(instrument_ids=[TestIdStubs.audusd_id().value], as_nautilus=True)
-        data = self.catalog.bars(instrument_ids=[TestIdStubs.audusd_id().value])
+    # Act
+    catalog.write_data(stub_bars, mode="append")
 
-        # Assert
-        assert len(objs) == 1
-        assert data.shape[0] == 1
-        assert "instrument_id" in data.columns
+    # Assert
+    bars = catalog.bars(bar_types=[str(bar_type)])
+    all_bars = catalog.bars()
+    assert len(bars) == len(all_bars) == 20
 
-    def test_catalog_projections(self):
-        projections = {"tid": ds.field("trade_id")}
-        trades = self.catalog.trade_ticks(projections=projections)
-        assert "tid" in trades.columns
-        assert trades["trade_id"].equals(trades["tid"])
+
+def test_catalog_bars_querying_by_instrument_id(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    bar_type = TestDataStubs.bartype_adabtc_binance_1min_last()
+    instrument = TestInstrumentProvider.adabtc_binance()
+    stub_bars = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type,
+        instrument,
+    )
+
+    # Act
+    catalog.write_data(stub_bars)
+
+    # Assert
+    bars = catalog.bars(instrument_ids=[instrument.id.value])
+    assert len(bars) == len(stub_bars) == 10
+
+
+def test_catalog_write_pyo3_order_book_depth10(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    instrument = TestInstrumentProvider.ethusdt_binance()
+    instrument_id = nautilus_pyo3.InstrumentId.from_str(instrument.id.value)
+    depth10 = TestDataProviderPyo3.order_book_depth10(instrument_id=instrument_id)
+
+    # Act
+    catalog.write_data([depth10] * 100)
+
+    # Assert
+    depths = catalog.order_book_depth10(instrument_ids=[instrument.id])
+    all_depths = catalog.order_book_depth10()
+    assert len(depths) == 100
+    assert len(all_depths) == 100
+
+
+def test_catalog_write_pyo3_quote_ticks(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    path = TEST_DATA_DIR / "truefx" / "audusd-ticks.csv"
+    df = pd.read_csv(path)
+    instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD")
+    wrangler = QuoteTickDataWranglerV2.from_instrument(instrument)
+    # Data must be sorted as the raw data was not originally sorted
+    pyo3_quotes = sorted(wrangler.from_pandas(df), key=lambda x: x.ts_init)
+
+    # Act
+    catalog.write_data(pyo3_quotes)
+
+    # Assert
+    quotes = catalog.quote_ticks(instrument_ids=[instrument.id])
+    all_quotes = catalog.quote_ticks()
+    assert len(quotes) == 100_000
+    assert len(all_quotes) == 100_000
+
+
+def test_catalog_write_pyo3_trade_ticks(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    path = TEST_DATA_DIR / "binance" / "ethusdt-trades.csv"
+    df = pd.read_csv(path)
+    instrument = TestInstrumentProvider.ethusdt_binance()
+    wrangler = TradeTickDataWranglerV2.from_instrument(instrument)
+    pyo3_trades = wrangler.from_pandas(df)
+
+    # Act
+    catalog.write_data(pyo3_trades)
+
+    # Assert
+    trades = catalog.trade_ticks(instrument_ids=[instrument.id])
+    all_trades = catalog.trade_ticks()
+    assert len(trades) == 69_806
+    assert len(all_trades) == 69_806
+
+
+def test_catalog_multiple_bar_types(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    bar_type1 = TestDataStubs.bartype_adabtc_binance_1min_last()
+    instrument1 = TestInstrumentProvider.adabtc_binance()
+    stub_bars1 = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type1,
+        instrument1,
+    )
+
+    bar_type2 = TestDataStubs.bartype_btcusdt_binance_100tick_last()
+    instrument2 = TestInstrumentProvider.btcusdt_binance()
+    stub_bars2 = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type2,
+        instrument2,
+    )
+
+    # Act
+    catalog.write_data(stub_bars1)
+    catalog.write_data(stub_bars2)
+
+    # Assert
+    bars1 = catalog.bars(bar_types=[str(bar_type1)])
+    bars2 = catalog.bars(bar_types=[str(bar_type2)])
+    bars3 = catalog.bars(instrument_ids=[instrument1.id.value])
+    all_bars = catalog.bars()
+    assert len(bars1) == 10
+    assert len(bars2) == 10
+    assert len(bars3) == 10
+    assert len(all_bars) == 20
+
+
+def test_catalog_bar_query_instrument_id(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    bar = TestDataStubs.bar_5decimal()
+    catalog_betfair.write_data([bar])
+
+    # Act
+    data = catalog_betfair.bars(bar_types=[str(bar.bar_type)])
+
+    # Assert
+    assert len(data) == 1
+
+
+def test_catalog_persists_equity(
+    catalog: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    instrument = TestInstrumentProvider.equity()
+    quote_tick = TestDataStubs.quote_tick(instrument=instrument)
+
+    # Act
+    catalog.write_data([instrument, quote_tick])
+
+    # Assert
+    instrument_from_catalog = catalog.instruments(instrument_ids=[instrument.id.value])[0]
+    quotes_from_catalog = catalog.quote_ticks(instrument_ids=[instrument.id.value])
+    assert instrument_from_catalog == instrument
+    assert len(quotes_from_catalog) == 1
+    assert quotes_from_catalog[0].instrument_id == instrument.id
+
+
+def test_list_backtest_runs(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    mock_folder = f"{catalog_betfair.path}/backtest/abc"
+    catalog_betfair.fs.mkdir(mock_folder)
+
+    # Act
+    result = catalog_betfair.list_backtest_runs()
+
+    # Assert
+    assert result == ["abc"]
+
+
+def test_list_live_runs(
+    catalog_betfair: ParquetDataCatalog,
+) -> None:
+    # Arrange
+    mock_folder = f"{catalog_betfair.path}/live/abc"
+    catalog_betfair.fs.mkdir(mock_folder)
+
+    # Act
+    result = catalog_betfair.list_live_runs()
+
+    # Assert
+    assert result == ["abc"]

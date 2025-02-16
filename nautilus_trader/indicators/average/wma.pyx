@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,11 +18,12 @@ from collections import deque
 import numpy as np
 
 from nautilus_trader.core.correctness cimport Condition
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.indicators.average.moving_average cimport MovingAverage
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class WeightedMovingAverage(MovingAverage):
@@ -36,7 +37,7 @@ cdef class WeightedMovingAverage(MovingAverage):
     weights : iterable
         The weights for the moving average calculation (if not ``None`` then = period).
     price_type : PriceType
-        The specified price type for extracting values from quote ticks.
+        The specified price type for extracting values from quotes.
 
     Raises
     ------
@@ -47,8 +48,8 @@ cdef class WeightedMovingAverage(MovingAverage):
     def __init__(
         self,
         int period,
-        weights=None,
-        PriceType price_type=PriceType.LAST,
+        weights = None,
+        PriceType price_type = PriceType.LAST,
     ):
         Condition.positive_int(period, "period")
         if weights is not None:
@@ -59,18 +60,18 @@ cdef class WeightedMovingAverage(MovingAverage):
             if weights.ndim != 1:
                 raise ValueError("weights must be iterable with ndim == 1.")
             else:
-                Condition.true(weights.dtype == np.float64, "weights ndarray.dtype must be 'float64'")
-                Condition.true(weights.ndim == 1, "weights ndarray.ndim must be 1")
+                Condition.is_true(weights.dtype == np.float64, "weights ndarray.dtype must be 'float64'")
+                Condition.is_true(weights.ndim == 1, "weights ndarray.ndim must be 1")
             Condition.equal(len(weights), period, "len(weights)", "period")
             eps = np.finfo(np.float64).eps
-            Condition.true(eps < weights.sum(), f"sum of weights must be positive > {eps}")
+            Condition.is_true(eps < weights.sum(), f"sum of weights must be positive > {eps}")
         super().__init__(period, params=[period, weights], price_type=price_type)
 
         self._inputs = deque(maxlen=period)
         self.weights = weights
         self.value = 0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the indicator with the given quote tick.
 
@@ -82,9 +83,10 @@ cdef class WeightedMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.extract_price(self.price_type).as_double())
+        cdef Price price = tick.extract_price(self.price_type)
+        self.update_raw(Price.raw_to_f64_c(price._mem.raw))
 
-    cpdef void handle_trade_tick(self, TradeTick tick) except *:
+    cpdef void handle_trade_tick(self, TradeTick tick):
         """
         Update the indicator with the given trade tick.
 
@@ -96,9 +98,9 @@ cdef class WeightedMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.price.as_double())
+        self.update_raw(Price.raw_to_f64_c(tick._mem.price.raw))
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -112,7 +114,7 @@ cdef class WeightedMovingAverage(MovingAverage):
 
         self.update_raw(bar.close.as_double())
 
-    cpdef void update_raw(self, double value) except *:
+    cpdef void update_raw(self, double value):
         """
         Update the indicator with the given raw value.
 
@@ -131,5 +133,5 @@ cdef class WeightedMovingAverage(MovingAverage):
 
         self._increment_count()
 
-    cpdef void _reset_ma(self) except *:
+    cpdef void _reset_ma(self):
         self._inputs.clear()

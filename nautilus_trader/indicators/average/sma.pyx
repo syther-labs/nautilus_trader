@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -18,12 +18,13 @@ from collections import deque
 import numpy as np
 
 from nautilus_trader.core.correctness cimport Condition
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.core.stats cimport fast_mean
 from nautilus_trader.indicators.average.moving_average cimport MovingAverage
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.data.bar cimport Bar
-from nautilus_trader.model.data.tick cimport QuoteTick
-from nautilus_trader.model.data.tick cimport TradeTick
+from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport QuoteTick
+from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.objects cimport Price
 
 
 cdef class SimpleMovingAverage(MovingAverage):
@@ -35,7 +36,7 @@ cdef class SimpleMovingAverage(MovingAverage):
     period : int
         The rolling window period for the indicator (> 0).
     price_type : PriceType
-        The specified price type for extracting values from quote ticks.
+        The specified price type for extracting values from quotes.
 
     Raises
     ------
@@ -50,7 +51,7 @@ cdef class SimpleMovingAverage(MovingAverage):
         self._inputs = deque(maxlen=period)
         self.value = 0
 
-    cpdef void handle_quote_tick(self, QuoteTick tick) except *:
+    cpdef void handle_quote_tick(self, QuoteTick tick):
         """
         Update the indicator with the given quote tick.
 
@@ -62,9 +63,10 @@ cdef class SimpleMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.extract_price(self.price_type).as_double())
+        cdef Price price = tick.extract_price(self.price_type)
+        self.update_raw(Price.raw_to_f64_c(price._mem.raw))
 
-    cpdef void handle_trade_tick(self, TradeTick tick) except *:
+    cpdef void handle_trade_tick(self, TradeTick tick):
         """
         Update the indicator with the given trade tick.
 
@@ -76,9 +78,9 @@ cdef class SimpleMovingAverage(MovingAverage):
         """
         Condition.not_none(tick, "tick")
 
-        self.update_raw(tick.price.as_double())
+        self.update_raw(Price.raw_to_f64_c(tick._mem.price.raw))
 
-    cpdef void handle_bar(self, Bar bar) except *:
+    cpdef void handle_bar(self, Bar bar):
         """
         Update the indicator with the given bar.
 
@@ -92,7 +94,7 @@ cdef class SimpleMovingAverage(MovingAverage):
 
         self.update_raw(bar.close.as_double())
 
-    cpdef void update_raw(self, double value) except *:
+    cpdef void update_raw(self, double value):
         """
         Update the indicator with the given raw value.
 
@@ -107,5 +109,5 @@ cdef class SimpleMovingAverage(MovingAverage):
         self.value = fast_mean(np.asarray(self._inputs, dtype=np.float64))
         self._increment_count()
 
-    cpdef void _reset_ma(self) except *:
+    cpdef void _reset_ma(self):
         self._inputs.clear()

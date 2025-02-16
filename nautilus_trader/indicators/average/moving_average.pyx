@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -17,8 +17,8 @@ from enum import Enum
 from enum import unique
 
 from nautilus_trader.core.correctness cimport Condition
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.indicators.base.indicator cimport Indicator
-from nautilus_trader.model.c_enums.price_type cimport PriceType
 
 
 @unique
@@ -31,11 +31,14 @@ class MovingAverageType(Enum):
     WEIGHTED = 2
     HULL = 3
     ADAPTIVE = 4
+    WILDER = 5
+    DOUBLE_EXPONENTIAL = 6
+    VARIABLE_INDEX_DYNAMIC = 7
 
 
 cdef class MovingAverage(Indicator):
     """
-    The abstract base class for all moving average type indicators.
+    The base class for all moving average type indicators.
 
     Parameters
     ----------
@@ -44,7 +47,7 @@ cdef class MovingAverage(Indicator):
     params : list
         The initialization parameters for the indicator.
     price_type : PriceType, optional
-        The specified price type for extracting values from quote ticks.
+        The specified price type for extracting values from quotes.
 
     Warnings
     --------
@@ -65,7 +68,7 @@ cdef class MovingAverage(Indicator):
         self.value = 0
         self.count = 0
 
-    cpdef void update_raw(self, double value) except *:
+    cpdef void update_raw(self, double value):
         """
         Update the indicator with the given raw value.
 
@@ -75,9 +78,9 @@ cdef class MovingAverage(Indicator):
             The update value.
 
         """
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `update_raw` must be implemented in the subclass")  # pragma: no cover
 
-    cpdef void _increment_count(self) except *:
+    cpdef void _increment_count(self):
         self.count += 1
 
         # Initialization logic
@@ -86,10 +89,10 @@ cdef class MovingAverage(Indicator):
             if self.count >= self.period:
                 self._set_initialized(True)
 
-    cpdef void _reset(self) except *:
+    cpdef void _reset(self):
         self._reset_ma()
         self.count = 0
         self.value = 0
 
-    cpdef void _reset_ma(self) except *:
+    cpdef void _reset_ma(self):
         pass  # Optionally override if additional values to reset

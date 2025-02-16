@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,18 +13,28 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Any, Optional
+from typing import Any
 
+import numpy as np
 import pandas as pd
-import quantstats
 
 from nautilus_trader.analysis.statistic import PortfolioStatistic
 
 
 class ProfitFactor(PortfolioStatistic):
     """
-    Calculates the profit factor or ratio (wins/loss).
+    Calculates the annualized profit factor or ratio (wins/loss).
     """
 
-    def calculate_from_returns(self, returns: pd.Series) -> Optional[Any]:
-        return quantstats.stats.profit_factor(returns=returns)
+    def calculate_from_returns(self, returns: pd.Series) -> Any | None:
+        # Preconditions
+        if not self._check_valid_returns(returns):
+            return np.nan
+
+        positive_returns_sum = returns[returns >= 0].sum()
+        negative_returns_sum = returns[returns < 0].sum()
+
+        if negative_returns_sum == 0:
+            return np.nan
+        else:
+            return abs(positive_returns_sum / negative_returns_sum)

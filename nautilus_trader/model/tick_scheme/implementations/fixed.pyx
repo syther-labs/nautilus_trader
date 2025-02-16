@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,8 +13,6 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from typing import Optional
-
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.tick_scheme.base cimport TickScheme
 from nautilus_trader.model.tick_scheme.base cimport register_tick_scheme
@@ -24,7 +22,7 @@ from nautilus_trader.model.tick_scheme.base cimport round_up
 
 cdef class FixedTickScheme(TickScheme):
     """
-    Represents a Fixed precision tick scheme such as for Forex or Crypto.
+    Represents a fixed precision tick scheme such as for Forex or Crypto.
 
     Parameters
     ----------
@@ -51,12 +49,12 @@ cdef class FixedTickScheme(TickScheme):
         int price_precision,
         Price min_tick not None,
         Price max_tick not None,
-        increment: Optional[float]=None,
+        increment: float | None = None,
     ):
         super().__init__(name=name, min_tick=min_tick, max_tick=max_tick)
         self.price_precision = price_precision
         self.increment = Price.from_str(str(increment or "0." + "1".zfill(price_precision)))
-        self._increment = self.increment.as_double()
+        self._increment = self.increment.as_f64_c()
 
     cpdef Price next_ask_price(self, double value, int n=0):
         """
@@ -120,6 +118,3 @@ FOREX_3DECIMAL_TICK_SCHEME = FixedTickScheme(
     min_tick=Price.from_str_c("0.001"),
     max_tick=Price.from_str_c("999.999"),
 )
-
-register_tick_scheme(FOREX_5DECIMAL_TICK_SCHEME)
-register_tick_scheme(FOREX_3DECIMAL_TICK_SCHEME)

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,44 +13,49 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from cpython.datetime cimport datetime
-from libc.stdint cimport int64_t
-
-from decimal import Decimal
-
+import msgspec
 import pandas as pd
 import pytz
+
+from nautilus_trader.backtest.config import FXRolloverInterestConfig
+from nautilus_trader.backtest.config import SimulationModuleConfig
+from nautilus_trader.common.config import ActorConfig
+
+from cpython.datetime cimport datetime
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.accounting.calculators cimport RolloverInterestCalculator
 from nautilus_trader.backtest.exchange cimport SimulatedExchange
 from nautilus_trader.core.correctness cimport Condition
-from nautilus_trader.model.c_enums.asset_class cimport AssetClass
-from nautilus_trader.model.c_enums.price_type cimport PriceType
-from nautilus_trader.model.currency cimport Currency
+from nautilus_trader.core.data cimport Data
+from nautilus_trader.core.rust.model cimport AssetClass
+from nautilus_trader.core.rust.model cimport PriceType
+from nautilus_trader.model.book cimport OrderBook
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.instruments.base cimport Instrument
+from nautilus_trader.model.objects cimport Currency
 from nautilus_trader.model.objects cimport Money
 from nautilus_trader.model.objects cimport Price
-from nautilus_trader.model.orderbook.book cimport OrderBook
 from nautilus_trader.model.position cimport Position
 
 
-cdef class SimulationModule:
+cdef class SimulationModule(Actor):
     """
-    The abstract base class for all simulation modules.
+    The base class for all simulation modules.
 
     Warnings
     --------
     This class should not be used directly, but through a concrete subclass.
     """
 
-    def __init__(self):
-        self._exchange = None  # Must be registered
+    def __init__(self, config: SimulationModuleConfig):
+        super().__init__(config)
+        self.exchange = None  # Must be registered
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}"
 
-    cpdef void register_exchange(self, SimulatedExchange exchange) except *:
+    cpdef void register_venue(self, SimulatedExchange exchange):
         """
         Register the given simulated exchange with the module.
 
@@ -62,22 +67,27 @@ cdef class SimulationModule:
         """
         Condition.not_none(exchange, "exchange")
 
-        self._exchange = exchange
+        self.exchange = exchange
 
-    cpdef void process(self, int64_t now_ns) except *:
-        """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+    cpdef void pre_process(self, Data data):
+        """Abstract method `pre_process` (implement in subclass)."""
+        pass
 
-    cpdef void log_diagnostics(self, LoggerAdapter log) except *:
+    cpdef void process(self, uint64_t ts_now):
         """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `process` must be implemented in the subclass")  # pragma: no cover
 
-    cpdef void reset(self) except *:
+    cpdef void log_diagnostics(self, Logger logger):
         """Abstract method (implement in subclass)."""
-        raise NotImplementedError("method must be implemented in the subclass")  # pragma: no cover
+        raise NotImplementedError("method `log_diagnostics` must be implemented in the subclass")  # pragma: no cover
+
+    cpdef void reset(self):
+        """Abstract method (implement in subclass)."""
+        raise NotImplementedError("method `reset` must be implemented in the subclass")  # pragma: no cover
 
 
 _TZ_US_EAST = pytz.timezone("US/Eastern")
+
 
 cdef class FXRolloverInterestModule(SimulationModule):
     """
@@ -85,30 +95,33 @@ cdef class FXRolloverInterestModule(SimulationModule):
 
     Parameters
     ----------
-    rate_data : pd.DataFrame
-        The interest rate data for the internal rollover interest calculator.
+    config  : FXRolloverInterestConfig
     """
 
-    def __init__(self, rate_data not None: pd.DataFrame):
-        super().__init__()
+    def __init__(self, config: FXRolloverInterestConfig):
+        super().__init__(config)
 
-        self._calculator = RolloverInterestCalculator(data=rate_data)
+        rate_data = config.rate_data
+        if not isinstance(rate_data, pd.DataFrame):
+            rate_data = pd.read_json(msgspec.json.decode(rate_data))
+
+        self._calculator = RolloverInterestCalculator(data=config.rate_data)
         self._rollover_time = None  # Initialized at first rollover
         self._rollover_applied = False
         self._rollover_totals = {}
         self._day_number = 0
 
-    cpdef void process(self, int64_t now_ns) except *:
+    cpdef void process(self, uint64_t ts_now):
         """
         Process the given tick through the module.
 
         Parameters
         ----------
-        now_ns : int64
-            The current time in the simulated exchange.
+        ts_now : uint64_t
+            The current UNIX timestamp (nanoseconds) in the simulated exchange.
 
         """
-        cdef datetime now = pd.Timestamp(now_ns, tz="UTC")
+        cdef datetime now = pd.Timestamp(ts_now, tz="UTC")
         cdef datetime rollover_local
         if self._day_number != now.day:
             # Set account statistics for new day
@@ -128,22 +141,26 @@ cdef class FXRolloverInterestModule(SimulationModule):
             self._apply_rollover_interest(now, self._rollover_time.isoweekday())
             self._rollover_applied = True
 
-    cdef void _apply_rollover_interest(self, datetime timestamp, int iso_week_day) except *:
-        cdef list open_positions = self._exchange.cache.positions_open()
+    cdef void _apply_rollover_interest(self, datetime timestamp, int iso_week_day):
+        cdef list open_positions = self.exchange.cache.positions_open()
 
         cdef Position position
         cdef Instrument instrument
         cdef OrderBook book
-        cdef dict mid_prices = {}  # type: dict[InstrumentId, Decimal]
+        cdef dict mid_prices = {}  # type: dict[InstrumentId, float]
         cdef Currency currency
+        cdef double mid
+        cdef double rollover
+        cdef double xrate
+        cdef Money rollover_total
         for position in open_positions:
-            instrument = self._exchange.instruments[position.instrument_id]
+            instrument = self.exchange.instruments[position.instrument_id]
             if instrument.asset_class != AssetClass.FX:
                 continue  # Only applicable to FX
 
-            mid: Decimal = mid_prices.get(instrument.id)
-            if mid is None:
-                book = self._exchange.get_book(instrument.id)
+            mid = mid_prices.get(instrument.id, 0.0)
+            if mid == 0.0:
+                book = self.exchange.get_book(instrument.id)
                 mid = book.midpoint()
                 if mid is None:
                     mid = book.best_bid_price()
@@ -151,54 +168,53 @@ cdef class FXRolloverInterestModule(SimulationModule):
                     mid = book.best_ask_price()
                 if mid is None:  # pragma: no cover
                     raise RuntimeError("cannot apply rollover interest, no market prices")
-                mid_prices[instrument.id] = Price(mid, precision=instrument.price_precision)
+                mid_prices[instrument.id] = Price(float(mid), precision=instrument.price_precision)
 
             interest_rate = self._calculator.calc_overnight_rate(
                 position.instrument_id,
                 timestamp,
             )
 
-            rollover: Decimal = position.quantity * mid_prices[instrument.id] * interest_rate
+            rollover = position.quantity.as_f64_c() * mid_prices[instrument.id] * float(interest_rate)
 
             if iso_week_day == 3:  # Book triple for Wednesdays
                 rollover *= 3
             elif iso_week_day == 5:  # Book triple for Fridays (holding over weekend)
                 rollover *= 3
 
-            if self._exchange.base_currency is not None:
-                currency = self._exchange.base_currency
-                xrate: Decimal = self._exchange.cache.get_xrate(
+            if self.exchange.base_currency is not None:
+                currency = self.exchange.base_currency
+                xrate = self.exchange.cache.get_xrate(
                     venue=instrument.id.venue,
                     from_currency=instrument.quote_currency,
                     to_currency=currency,
                     price_type=PriceType.MID,
-                )
+                ) or 0.0  # Retain original behavior of returning zero for now
                 rollover *= xrate
             else:
                 currency = instrument.quote_currency
 
-            rollover_total = self._rollover_totals.get(currency, Decimal(0))
-            rollover_total = Money(rollover_total + rollover, currency)
+            rollover_total = Money(self._rollover_totals.get(currency, 0.0) + rollover, currency)
             self._rollover_totals[currency] = rollover_total
 
-            self._exchange.adjust_account(Money(-rollover, currency))
+            self.exchange.adjust_account(Money(-rollover, currency))
 
-    cpdef void log_diagnostics(self, LoggerAdapter log) except *:
+    cpdef void log_diagnostics(self, Logger logger):
         """
         Log diagnostics out to the `BacktestEngine` logger.
 
         Parameters
         ----------
-        log : LoggerAdapter
+        logger : Logger
             The logger to log to.
 
         """
-        account_balances_starting = ', '.join([b.to_str() for b in self._exchange.starting_balances])
+        account_balances_starting = ', '.join([b.to_formatted_str() for b in self.exchange.starting_balances])
         account_starting_length = len(account_balances_starting)
-        rollover_totals = ', '.join([b.to_str() for b in self._rollover_totals.values()])
-        log.info(f"Rollover interest (totals): {rollover_totals}")
+        rollover_totals = ', '.join([b.to_formatted_str() for b in self._rollover_totals.values()])
+        logger.info(f"Rollover interest (totals): {rollover_totals}")
 
-    cpdef void reset(self) except *:
+    cpdef void reset(self):
         self._rollover_time = None  # Initialized at first rollover
         self._rollover_applied = False
         self._rollover_totals = {}

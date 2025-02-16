@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -13,10 +13,11 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from libc.stdint cimport int64_t
+from libc.stdint cimport uint64_t
 
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport OrderListId
+from nautilus_trader.model.identifiers cimport StrategyId
 from nautilus_trader.model.orders.base cimport Order
 
 
@@ -25,9 +26,11 @@ cdef class OrderList:
     """The order list ID.\n\n:returns: `OrderListId`"""
     cdef readonly InstrumentId instrument_id
     """The instrument ID associated with the list.\n\n:returns: `InstrumentId`"""
+    cdef readonly StrategyId strategy_id
+    """The strategy ID associated with the list.\n\n:returns: `StrategyId`"""
     cdef readonly list orders
-    """The orders contained in the list.\n\n:returns: `list[Order]`"""
+    """The contained orders list.\n\n:returns: `list[Order]`"""
     cdef readonly Order first
     """The first order in the list (typically the parent).\n\n:returns: `list[Order]`"""
-    cdef readonly int64_t ts_init
-    """The UNIX timestamp (nanoseconds) when the object was initialized.\n\n:returns: `int64`"""
+    cdef readonly uint64_t ts_init
+    """UNIX timestamp (nanoseconds) when the object was initialized.\n\n:returns: `uint64_t`"""

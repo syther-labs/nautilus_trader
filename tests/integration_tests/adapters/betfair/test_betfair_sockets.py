@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2022 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -14,31 +14,100 @@
 # -------------------------------------------------------------------------------------------------
 
 import asyncio
+import platform
 import sys
+from collections.abc import Callable
 
 import pytest
 
 from nautilus_trader.adapters.betfair.sockets import BetfairMarketStreamClient
 from nautilus_trader.adapters.betfair.sockets import BetfairOrderStreamClient
-from nautilus_trader.common.clock import LiveClock
-from nautilus_trader.common.logging import LiveLogger
+from nautilus_trader.adapters.betfair.sockets import BetfairStreamClient
 from tests.integration_tests.adapters.betfair.test_kit import BetfairTestStubs
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="failing on windows")
+@pytest.mark.skipif(
+    sys.platform == "win32" and platform.python_version().startswith("3.12"),
+    reason="Failing on Windows with Python 3.12",
+)
 class TestBetfairSockets:
     def setup(self):
         # Fixture Setup
         self.loop = asyncio.get_event_loop()
-        self.clock = LiveClock()
-        self.logger = LiveLogger(loop=self.loop, clock=self.clock)
-        self.client = BetfairTestStubs.betfair_client(loop=self.loop, logger=self.logger)
+        self.client = BetfairTestStubs.betfair_client(loop=self.loop)
+
+    def _build_stream_client(
+        self,
+        host: str,
+        port: int,
+        handler: Callable[[bytes], None],
+    ) -> BetfairStreamClient:
+        client = BetfairStreamClient(
+            http_client=self.client,
+            message_handler=handler,
+            host=host,
+            port=port,
+        )
+        client.use_ssl = False
+        return client
 
     def test_unique_id(self):
         clients = [
-            BetfairMarketStreamClient(client=self.client, logger=self.logger, message_handler=len),
-            BetfairOrderStreamClient(client=self.client, logger=self.logger, message_handler=len),
-            BetfairMarketStreamClient(client=self.client, logger=self.logger, message_handler=len),
+            BetfairMarketStreamClient(
+                http_client=self.client,
+                message_handler=len,
+            ),
+            BetfairOrderStreamClient(
+                http_client=self.client,
+                message_handler=len,
+            ),
+            BetfairMarketStreamClient(
+                http_client=self.client,
+                message_handler=len,
+            ),
         ]
         result = [c.unique_id for c in clients]
         assert result == sorted(set(result))
+
+    @pytest.mark.asyncio
+    async def test_socket_client_connect(self, socket_server):
+        # Arrange
+        messages = []
+        host, port = socket_server
+        client = self._build_stream_client(host=host, port=port, handler=messages.append)
+
+        # Act
+        await client.connect()
+
+        # Assert
+        assert client.is_active()
+        await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_socket_client_reconnect(self, closing_socket_server):
+        # Arrange
+        messages = []
+        host, port = closing_socket_server
+        client = self._build_stream_client(host=host, port=port, handler=messages.append)
+
+        # Act
+        await client.connect()
+        await client.reconnect()
+
+        # Assert
+        assert client.is_active()
+        await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_socket_client_disconnect(self, closing_socket_server):
+        # Arrange
+        messages = []
+        host, port = closing_socket_server
+        client = self._build_stream_client(host=host, port=port, handler=messages.append)
+
+        # Act
+        await client.connect()
+
+        # Assert
+        assert client.is_active()
+        await client.disconnect()
