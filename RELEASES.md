@@ -46,7 +46,9 @@ TBD
 - Fixed risk engine trailing stop order risk validations (#3160), thanks for reporting @GianC0
 - Fixed spawned order client_id caching in `ExecAlgorithm` (#3122), thanks for reporting @kirill-gr1
 - Fixed parse_dates parameter in CSV loaders (#3132), thanks @maomao9-0
+- Fixed `GreeksCalculator` handling of missing price data (#3116), thanks for reporting @q351941406
 - Fixed Binance instrument info dict JSON serialization (#3128), thanks for reporting @woung717
+- Fixed Databento MBO data decoding when `PRICE_UNDEF` appears with non-zero precision
 - Fixed Interactive Brokers quote tick subscriptions to use tick-by-tick data (#3135), thanks for reporting @genliusrocks
 - Fixed OKX pre-open instrument parsing and standardize enum usage (#3134), thanks for reporting @3wtz
 - Fixed OKX `request_bars` pagination halting prematurely in Range mode (#3145), thanks for reporting @3wtz
@@ -66,12 +68,14 @@ TBD
 - Optimized execution reconciliation to avoid quadratic complexity (#3140), thanks @DeirhX
 - Optimized network clients by enabling `TCP_NODELAY` (#3156), thanks @sunlei
 - Optimized build by disabling Cargo incremental compilation when using sccache (#3157), thanks @sunlei
+- Optimized BitMEX submit and cancel broadcasters by removing unnecessary lock on internal transport clients
 - Repaired OKX spot margin position reports for borrowing, thanks @sunlei
 - Repaired Bybit docs links in comment (#3125), thanks @sunlei
 - Repaired Bybit HTTP order place (#3127), thanks @sunlei
 - Repaired Bybit `AccountPosition` message parsing (#3147), thanks @sunlei
 - Upgraded implied-vol crate (#3115), thanks @faysou
 - Upgraded Rust (MSRV) to 1.91.0
+- Upgraded Cython to v3.2.0
 - Upgraded `pyo3` crate to v0.27.0
 - Upgraded `pyo3-async-runtimes` crate to v0.27.0
 
